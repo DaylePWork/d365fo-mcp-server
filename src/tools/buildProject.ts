@@ -224,6 +224,9 @@ async function launchXppcBackground(
     windowsHide: true,
     stdio: ['ignore', logFd, logFd],
   });
+  // Prevent the MCP server process from waiting for the child to exit.
+  // Without unref(), a long-running xppc.exe build would block a clean server shutdown.
+  child.unref();
 
   const state: BuildJobState = {
     pid: child.pid!,
@@ -312,6 +315,7 @@ export const buildProjectToolDefinition = {
 // ---------------------------------------------------------------------------
 
 export const buildProjectTool = async (params: any, _context: any) => {
+  try {
   const force = params.force === true;
 
   const configManager = getConfigManager();
@@ -399,24 +403,11 @@ export const buildProjectTool = async (params: any, _context: any) => {
   let customPackagesPath: string | null = null;
   let microsoftPackagesPath: string | null = null;
 
-  // Priority 1: XPP config (UDE)
-  try {
-    const xppConfig = await (configManager as any).getActiveXppConfig?.();
-    if (xppConfig) {
-      customPackagesPath = xppConfig.customPackagesPath;
-      microsoftPackagesPath = xppConfig.microsoftPackagesPath;
-    }
-  } catch { /* best-effort */ }
-
-  // Priority 2: configManager methods (may cover either environment)
-  if (!customPackagesPath) {
-    try { customPackagesPath = await (configManager as any).getCustomPackagesPath?.() ?? null; } catch { /* */ }
-  }
+  // Priority 1: configManager typed methods — cover both UDE (via ensureXppConfig) and CHE
+  customPackagesPath = await configManager.getCustomPackagesPath();
+  microsoftPackagesPath = await configManager.getMicrosoftPackagesPath();
   if (!microsoftPackagesPath) {
-    try { microsoftPackagesPath = await configManager.getMicrosoftPackagesPath?.() ?? null; } catch { /* */ }
-  }
-  if (!microsoftPackagesPath) {
-    try { microsoftPackagesPath = configManager.getPackagePath() ?? null; } catch { /* */ }
+    microsoftPackagesPath = configManager.getPackagePath();
   }
 
   // Priority 3: CHE fallback — probe well-known PackagesLocalDirectory locations
@@ -513,4 +504,11 @@ export const buildProjectTool = async (params: any, _context: any) => {
       ].join('\n'),
     }],
   };
+  } catch (error: any) {
+    await buildLog('ERROR', `Unhandled error in build_d365fo_project: ${error?.message}`);
+    return {
+      content: [{ type: 'text', text: `❌ Internal error: ${error?.message ?? String(error)}` }],
+      isError: true,
+    };
+  }
 };

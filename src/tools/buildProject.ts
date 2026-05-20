@@ -40,14 +40,17 @@ function assertSafePath(value: string, label: string): void {
   }
 }
 
+// xppc.exe writes this prefix on error lines in the -log file (standalone/non-VS mode)
+const XPPC_COMPILE_ERROR_RE = /^Compile Error:/m;
+
 // ---------------------------------------------------------------------------
 // Async build state management
-// State and log files live in os.tmpdir(), keyed by a hash of the project path.
+// State and log files live in os.tmpdir(), keyed by a hash of modelName+metadataPath.
 // ---------------------------------------------------------------------------
 
 interface BuildJobState {
   pid: number;
-  projectPath: string;
+  modelName: string;
   tool: string;
   startTime: string;
   logFile: string;
@@ -56,16 +59,20 @@ interface BuildJobState {
   endTime?: string;
 }
 
-function buildJobPaths(projectPath: string): { stateFile: string; logFile: string } {
-  const hash = crypto.createHash('md5').update(projectPath.toLowerCase()).digest('hex').slice(0, 10);
+function buildJobKey(modelName: string, customPackagesPath: string): string {
+  return `${modelName.toLowerCase()}|${customPackagesPath.toLowerCase()}`;
+}
+
+function buildJobPaths(modelName: string, customPackagesPath: string): { stateFile: string; logFile: string } {
+  const hash = crypto.createHash('md5').update(buildJobKey(modelName, customPackagesPath)).digest('hex').slice(0, 10);
   return {
     stateFile: path.join(os.tmpdir(), `d365build_state_${hash}.json`),
     logFile:   path.join(os.tmpdir(), `d365build_log_${hash}.log`),
   };
 }
 
-async function readBuildState(projectPath: string): Promise<BuildJobState | null> {
-  const { stateFile } = buildJobPaths(projectPath);
+async function readBuildState(modelName: string, customPackagesPath: string): Promise<BuildJobState | null> {
+  const { stateFile } = buildJobPaths(modelName, customPackagesPath);
   try {
     const raw = await readFile(stateFile, 'utf-8');
     return JSON.parse(raw) as BuildJobState;
@@ -74,13 +81,13 @@ async function readBuildState(projectPath: string): Promise<BuildJobState | null
   }
 }
 
-async function writeBuildState(state: BuildJobState): Promise<void> {
-  const { stateFile } = buildJobPaths(state.projectPath);
+async function writeBuildState(state: BuildJobState, customPackagesPath: string): Promise<void> {
+  const { stateFile } = buildJobPaths(state.modelName, customPackagesPath);
   await writeFile(stateFile, JSON.stringify(state, null, 2), 'utf-8');
 }
 
-async function clearBuildState(projectPath: string): Promise<void> {
-  const { stateFile } = buildJobPaths(projectPath);
+async function clearBuildState(modelName: string, customPackagesPath: string): Promise<void> {
+  const { stateFile } = buildJobPaths(modelName, customPackagesPath);
   await unlink(stateFile).catch(() => {});
 }
 
@@ -98,40 +105,6 @@ async function readLogTail(logFile: string, lines = 60): Promise<string> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Parse xppc.exe diagnostic XML (BuildModelResult.err.xml)
-// xppc.exe does not print errors to stdout — it writes them to:
-//   {customPackagesPath}/{modelName}/BuildModelResult.err.xml
-// ---------------------------------------------------------------------------
-
-interface XppcDiagnostic {
-  severity: string;
-  path: string;
-  message: string;
-  line?: string;
-  column?: string;
-}
-
-function parseBuildDiagnostics(xml: string): XppcDiagnostic[] {
-  const diagnostics: XppcDiagnostic[] = [];
-  const itemRegex = /<Diagnostic>([\s\S]*?)<\/Diagnostic>/g;
-  let match: RegExpExecArray | null;
-  while ((match = itemRegex.exec(xml)) !== null) {
-    const block = match[1];
-    const get = (tag: string) => {
-      const m = block.match(new RegExp(`<${tag}>([^<]*)<\/${tag}>`));
-      return m ? m[1].trim() : '';
-    };
-    diagnostics.push({
-      severity: get('Severity'),
-      path:     get('Path'),
-      message:  get('Message'),
-      line:     get('Line') || undefined,
-      column:   get('Column') || undefined,
-    });
-  }
-  return diagnostics;
-}
 
 // ---------------------------------------------------------------------------
 // Parse model name from .rnrproj XML
@@ -190,31 +163,52 @@ async function findXppcExe(microsoftPackagesPath: string | null): Promise<string
 
 async function launchXppcBackground(
   xppcExe: string,
-  projectPath: string,
   modelName: string,
   customPackagesPath: string,
   microsoftPackagesPath: string,
+  extraReferenceFolders: string[] = [],
 ): Promise<BuildJobState> {
   assertSafePath(xppcExe, 'xppc.exe path');
-  assertSafePath(projectPath, 'Project path');
   assertSafePath(modelName, 'Model name');
   assertSafePath(customPackagesPath, 'Custom packages path');
   assertSafePath(microsoftPackagesPath, 'Microsoft packages path');
 
-  const { logFile } = buildJobPaths(projectPath);
+  const { logFile } = buildJobPaths(modelName, customPackagesPath);
   const outputPath = path.join(customPackagesPath, modelName, 'bin');
+
+  // xppc.exe -log=<path> writes all compiler diagnostics to a plain-text file:
+  //   Compile Error: Class Method dynamics://...: [(line,col),(line,col)]: message
+  // This is the only reliable way to capture errors in standalone (non-VS) mode.
+  const xppcErrorLog = logFile.replace('.log', '.xppc.err');
+
+  // Build the full deduplicated set of reference folders.
+  // Start with the two required paths, then append any extras from ReferencePackagesPaths.
+  const seenRefFolders = new Set<string>();
+  const referenceFolderArgs: string[] = [];
+  for (const folder of [microsoftPackagesPath, customPackagesPath, ...extraReferenceFolders]) {
+    const norm = folder.toLowerCase();
+    if (!seenRefFolders.has(norm)) {
+      seenRefFolders.add(norm);
+      referenceFolderArgs.push(`-referenceFolder=${folder}`);
+    }
+  }
 
   const xppcArgs = [
     `-metadata=${customPackagesPath}`,
     `-compilermetadata=${microsoftPackagesPath}`,
     `-modelmodule=${modelName}`,
-    `-referenceFolder=${microsoftPackagesPath}`,
-    `-referenceFolder=${customPackagesPath}`,
+    ...referenceFolderArgs,
     `-output=${outputPath}`,
     '-incremental',
+    `-log=${xppcErrorLog}`,
   ];
 
   await buildLog('INFO', `xppc.exe args: ${xppcArgs.join(' ')}`);
+
+  // Clear stale diagnostics files before each build so a previous failed run's
+  // errors don't bleed into a subsequent successful build's output.
+  // Clear the xppc error log so we never read stale entries from a previous run.
+  await unlink(xppcErrorLog).catch(() => {});
 
   // xppc.exe is a normal console app — file descriptor redirect works fine
   const logFd = openSyncFs(logFile, 'w');
@@ -224,42 +218,44 @@ async function launchXppcBackground(
     windowsHide: true,
     stdio: ['ignore', logFd, logFd],
   });
-  // Prevent the MCP server process from waiting for the child to exit.
-  // Without unref(), a long-running xppc.exe build would block a clean server shutdown.
+  // Prevent the MCP server from waiting for xppc to exit on shutdown.
   child.unref();
 
   const state: BuildJobState = {
     pid: child.pid!,
-    projectPath,
+    modelName,
     tool: 'xppc.exe',
     startTime: new Date().toISOString(),
     logFile,
     status: 'running',
   };
 
-  await writeBuildState(state);
+  await writeBuildState(state, customPackagesPath);
   await buildLog('INFO', `xppc.exe launched — PID: ${child.pid} | model: ${modelName} | log: ${logFile}`);
 
   child.on('close', async (code) => {
     closeSyncFs(logFd);
     const exitCode = code ?? -1;
-    const succeeded = exitCode === 0;
 
-    // xppc.exe writes diagnostics to {customPackagesPath}/{modelName}/BuildModelResult.err.xml
-    // rather than stdout. Append a formatted summary so the caller sees actual error messages.
+    // Read the xppc -log output first — this is the authoritative source of
+    // compiler errors. xppc does NOT write errors to stdout or the XML result
+    // files when run standalone (outside VS/MSBuild). The -log file contains
+    // lines like:
+    //   Compile Error: Class Method dynamics://...: [(28,27),(28,28)]: ';' expected.
+    //   Compile Warning: ...
+    let xppcErrorContent = '';
     try {
-      const errXmlPath = path.join(customPackagesPath, modelName, 'BuildModelResult.err.xml');
-      const errXml = await readFile(errXmlPath, 'utf-8');
-      const diagnostics = parseBuildDiagnostics(errXml);
-      if (diagnostics.length > 0) {
-        const lines = ['\n--- Compiler diagnostics ---'];
-        for (const d of diagnostics) {
-          const loc = d.line ? ` (line ${d.line}${d.column ? `, col ${d.column}` : ''})` : '';
-          lines.push(`[${d.severity}] ${d.path}${loc}: ${d.message}`);
-        }
-        await appendFile(logFile, lines.join('\n') + '\n', 'utf-8');
-      }
-    } catch { /* file may not exist on clean builds */ }
+      xppcErrorContent = await readFile(xppcErrorLog, 'utf-8');
+    } catch { /* no -log file = no diagnostics */ }
+
+    const hasCompileErrors = XPPC_COMPILE_ERROR_RE.test(xppcErrorContent);
+    // A build succeeds only when xppc exits 0 AND no compile errors were logged.
+    // xppc may exit 0 even when it emits errors (observed in UDE standalone mode).
+    const succeeded = exitCode === 0 && !hasCompileErrors;
+
+    if (xppcErrorContent.trim()) {
+      await appendFile(logFile, '\n--- xppc compiler diagnostics ---\n' + xppcErrorContent + '\n', 'utf-8');
+    }
 
     const updated: BuildJobState = {
       ...state,
@@ -267,14 +263,14 @@ async function launchXppcBackground(
       exitCode,
       endTime: new Date().toISOString(),
     };
-    await writeBuildState(updated).catch(() => {});
-    await buildLog(succeeded ? 'INFO' : 'ERROR', `xppc.exe finished — PID: ${child.pid} | exit: ${exitCode}`);
+    await writeBuildState(updated, customPackagesPath).catch(() => {});
+    await buildLog(succeeded ? 'INFO' : 'ERROR', `xppc.exe finished — PID: ${child.pid} | exit: ${exitCode} | compile errors: ${hasCompileErrors}`);
   });
 
   child.on('error', async (err) => {
     closeSyncFs(logFd);
     const updated: BuildJobState = { ...state, status: 'failed', exitCode: -1, endTime: new Date().toISOString() };
-    await writeBuildState(updated).catch(() => {});
+    await writeBuildState(updated, customPackagesPath).catch(() => {});
     await buildLog('ERROR', `xppc.exe error — PID: ${child.pid}: ${err.message}`);
   });
 
@@ -298,14 +294,16 @@ async function killOrphanedBuildProcesses(): Promise<void> {
 export const buildProjectToolDefinition = {
   name: 'build_d365fo_project',
   description: [
-    'Builds a D365FO .rnrproj project using the X++ compiler (xppc.exe) and returns compiler errors.',
+    'Builds a D365FO model using the X++ compiler (xppc.exe) and returns compiler errors.',
+    'Compiles the entire model — equivalent to building the full model in Visual Studio.',
     'Because compilation can take several minutes, the build runs in the background.',
     'First call: starts the build and returns immediately.',
-    'Subsequent calls on the same project: return current status + latest log output.',
+    'Subsequent calls for the same model: return current status + latest log output.',
     'Use force:true to kill a stuck build and restart.',
   ].join(' '),
   parameters: z.object({
-    projectPath: z.string().optional().describe('Absolute path to the .rnrproj file. Auto-detected from .mcp.json if omitted.'),
+    modelName: z.string().optional().describe('D365FO model name to build (e.g. MyCompanyModel). Auto-detected from workspace if omitted.'),
+    projectPath: z.string().optional().describe('(Legacy) Absolute path to a .rnrproj file — used only to extract the model name when modelName is not provided.'),
     force: z.boolean().optional().describe('Kill any running build processes and restart.'),
   }),
 };
@@ -321,104 +319,48 @@ export const buildProjectTool = async (params: any, _context: any) => {
   const configManager = getConfigManager();
   await configManager.ensureLoaded();
 
-  const resolvedProjectPath: string = params.projectPath || await configManager.getProjectPath() || '';
-  if (!resolvedProjectPath) {
-    return { content: [{ type: 'text', text: '❌ Cannot determine project path.\n\nProvide projectPath parameter or set it in .mcp.json.' }], isError: true };
-  }
-
-  // ------------------------------------------------------------------
-  // Check for an existing background build for this project
-  // ------------------------------------------------------------------
-  const existingState = await readBuildState(resolvedProjectPath);
-
-  if (existingState && !force) {
-    const alive = isProcessAlive(existingState.pid);
-    const logTail = await readLogTail(existingState.logFile);
-
-    if (existingState.status === 'running' && alive) {
-      const elapsed = Math.round((Date.now() - new Date(existingState.startTime).getTime()) / 1000);
-      return {
-        content: [{
-          type: 'text',
-          text: `⏳ Build in progress (${existingState.tool} PID: ${existingState.pid}, running ${elapsed}s)\n\nProject: ${resolvedProjectPath}\n\nCall again to refresh status.\n\n--- Latest log ---\n${logTail}`,
-        }],
-      };
-    }
-
-    if (existingState.status === 'running' && !alive) {
-      await clearBuildState(resolvedProjectPath);
-      return {
-        content: [{
-          type: 'text',
-          text: `❌ Build process (PID: ${existingState.pid}) exited unexpectedly without reporting a result.\n\nProject: ${resolvedProjectPath}\n\n--- Log ---\n${logTail}`,
-        }],
-        isError: true,
-      };
-    }
-
-    // Build finished — return result and clear state
-    await clearBuildState(resolvedProjectPath);
-    const succeeded = existingState.status === 'succeeded';
-    const hasErrors = !succeeded || /\b(error|Error)\s+(CS|AX|X\+\+|MSB)\d+|Build FAILED|\berror\s*:/i.test(logTail);
-    const hasWarnings = !hasErrors && /\b(warning)\s+(CS|AX|X\+\+|MSB|BP)\d+|\bwarning\s*:/i.test(logTail);
-    const statusIcon = hasErrors ? '❌ Build FAILED' : hasWarnings ? '⚠️ Build succeeded with warnings' : '✅ Build succeeded';
-    const duration = existingState.endTime
-      ? Math.round((new Date(existingState.endTime).getTime() - new Date(existingState.startTime).getTime()) / 1000)
-      : '?';
-    return {
-      content: [{
-        type: 'text',
-        text: `${statusIcon} (${existingState.tool}, ${duration}s)\n\nProject: ${resolvedProjectPath}\n\n${logTail || '(no output)'}`,
-      }],
-      ...(hasErrors ? { isError: true } : {}),
-    };
-  }
-
-  // ------------------------------------------------------------------
-  // force=true: kill existing processes and clear state
-  // ------------------------------------------------------------------
-  if (force) {
-    await buildLog('WARN', `force=true — killing orphaned build processes for: ${resolvedProjectPath}`);
-    if (existingState?.pid) {
-      try { process.kill(existingState.pid, 'SIGTERM'); } catch { /* already gone */ }
-    }
-    await killOrphanedBuildProcesses();
-    await clearBuildState(resolvedProjectPath);
-    await forceReleaseLock(`build:${resolvedProjectPath}`);
-  }
-
   // ------------------------------------------------------------------
   // Resolve paths — supports both UDE and CHE environments
   //
   // UDE (Unified Developer Experience):
   //   - XPP config JSON present in %LOCALAPPDATA%\Microsoft\Dynamics365\XPPConfig\
-  //   - customPackagesPath  = ModelStoreFolder  (git repo metadata, e.g. src\Metadata)
+  //   - customPackagesPath    = ModelStoreFolder  (git repo metadata, e.g. src\Metadata)
   //   - microsoftPackagesPath = FrameworkDirectory (AppData UDE packages)
+  //   - referencePackagesPaths = all folders xppc should reference (incl. dist/ ISV packages)
   //
   // CHE (Cloud-Hosted Environment):
   //   - No XPP config; all packages in a single PackagesLocalDirectory
-  //   - Both customPackagesPath and microsoftPackagesPath = PackagesLocalDirectory
+  //   - Both paths = PackagesLocalDirectory
   //   - Typical locations: C:\AOSService\PackagesLocalDirectory or K:\, J:\, I:\
   // ------------------------------------------------------------------
   let customPackagesPath: string | null = null;
   let microsoftPackagesPath: string | null = null;
+  let extraReferenceFolders: string[] = [];
 
-  // Priority 1: configManager typed methods — cover both UDE (via ensureXppConfig) and CHE
-  customPackagesPath = await configManager.getCustomPackagesPath();
-  microsoftPackagesPath = await configManager.getMicrosoftPackagesPath();
+  // Priority 1: XPP config (UDE) — authoritative source for all paths
+  const xppConfig = await configManager.getActiveXppConfig();
+  if (xppConfig) {
+    customPackagesPath    = xppConfig.customPackagesPath;
+    microsoftPackagesPath = xppConfig.microsoftPackagesPath;
+    extraReferenceFolders = xppConfig.referencePackagesPaths ?? [];
+  }
+
+  // Priority 2: configManager explicit methods (covers .mcp.json overrides)
+  if (!customPackagesPath) {
+    customPackagesPath = await configManager.getCustomPackagesPath();
+  }
   if (!microsoftPackagesPath) {
-    microsoftPackagesPath = configManager.getPackagePath();
+    microsoftPackagesPath = await configManager.getMicrosoftPackagesPath() ?? configManager.getPackagePath();
   }
 
   // Priority 3: CHE fallback — probe well-known PackagesLocalDirectory locations
   if (!microsoftPackagesPath) {
-    const cheCandidates = [
+    for (const candidate of [
       'C:\\AOSService\\PackagesLocalDirectory',
       'K:\\AOSService\\PackagesLocalDirectory',
       'J:\\AOSService\\PackagesLocalDirectory',
       'I:\\AOSService\\PackagesLocalDirectory',
-    ];
-    for (const candidate of cheCandidates) {
+    ]) {
       try { await access(candidate); microsoftPackagesPath = candidate; break; } catch { /* next */ }
     }
   }
@@ -447,17 +389,103 @@ export const buildProjectTool = async (params: any, _context: any) => {
   }
 
   // ------------------------------------------------------------------
-  // Get model name from .rnrproj
+  // Resolve model name
+  // Priority: 1) explicit param  2) auto-detected from workspace  3) .rnrproj fallback
   // ------------------------------------------------------------------
-  const modelName = await getModelFromRnrproj(resolvedProjectPath);
+  let modelName: string | null = params.modelName || configManager.getModelName();
+
+  if (!modelName && params.projectPath) {
+    modelName = await getModelFromRnrproj(params.projectPath);
+  }
+
   if (!modelName) {
     return {
       content: [{
         type: 'text',
-        text: `❌ Cannot read model name from .rnrproj: ${resolvedProjectPath}`,
+        text: [
+          `❌ Cannot determine model name.`,
+          ``,
+          `Provide modelName parameter, or configure it in .mcp.json / D365FO_MODEL_NAME env var.`,
+        ].join('\n'),
       }],
       isError: true,
     };
+  }
+
+  // ------------------------------------------------------------------
+  // Check for an existing background build for this model
+  // ------------------------------------------------------------------
+  const existingState = await readBuildState(modelName, customPackagesPath);
+
+  if (existingState && !force) {
+    const alive = isProcessAlive(existingState.pid);
+    const logTail = await readLogTail(existingState.logFile);
+
+    if (existingState.status === 'running' && alive) {
+      const elapsed = Math.round((Date.now() - new Date(existingState.startTime).getTime()) / 1000);
+      return {
+        content: [{
+          type: 'text',
+          text: `⏳ Build in progress (${existingState.tool} PID: ${existingState.pid}, running ${elapsed}s)\n\nModel: ${modelName}\n\nCall again to refresh status.\n\n--- Latest log ---\n${logTail}`,
+        }],
+      };
+    }
+
+    if (existingState.status === 'running' && !alive) {
+      // The process has exited but the close handler (which writes the final state) is async.
+      // Wait up to 2 s for it to finish before giving up and declaring an unexpected exit.
+      let finalState = existingState;
+      for (let i = 0; i < 4; i++) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const refreshed = await readBuildState(modelName, customPackagesPath);
+        if (refreshed && refreshed.status !== 'running') { finalState = refreshed; break; }
+      }
+      if (finalState.status !== 'running') {
+        // Close handler finished — fall through to normal result handling below
+        existingState.status = finalState.status;
+        existingState.exitCode = finalState.exitCode;
+        existingState.endTime = finalState.endTime;
+      } else {
+        await clearBuildState(modelName, customPackagesPath);
+        return {
+          content: [{
+            type: 'text',
+            text: `❌ Build process (PID: ${existingState.pid}) exited unexpectedly without reporting a result.\n\nModel: ${modelName}\n\n--- Log ---\n${logTail}`,
+          }],
+          isError: true,
+        };
+      }
+    }
+
+    // Build finished — return result and clear state
+    await clearBuildState(modelName, customPackagesPath);
+    const succeeded = existingState.status === 'succeeded';
+    const hasErrors = !succeeded;
+    const hasWarnings = !hasErrors && /^(Generation Warning|Compile Warning):/m.test(logTail);
+    const statusIcon = hasErrors ? '❌ Build FAILED' : hasWarnings ? '⚠️ Build succeeded with warnings' : '✅ Build succeeded';
+    const duration = existingState.endTime
+      ? Math.round((new Date(existingState.endTime).getTime() - new Date(existingState.startTime).getTime()) / 1000)
+      : '?';
+    return {
+      content: [{
+        type: 'text',
+        text: `${statusIcon} (${existingState.tool}, ${duration}s)\n\nModel: ${modelName}\n\n${logTail || '(no output)'}`,
+      }],
+      ...(hasErrors ? { isError: true } : {}),
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // force=true: kill existing processes and clear state
+  // ------------------------------------------------------------------
+  if (force) {
+    await buildLog('WARN', `force=true — killing orphaned build processes for model: ${modelName}`);
+    if (existingState?.pid) {
+      try { process.kill(existingState.pid, 'SIGTERM'); } catch { /* already gone */ }
+    }
+    await killOrphanedBuildProcesses();
+    await clearBuildState(modelName, customPackagesPath);
+    await forceReleaseLock(`build:${modelName}`);
   }
 
   // ------------------------------------------------------------------
@@ -474,20 +502,23 @@ export const buildProjectTool = async (params: any, _context: any) => {
     };
   }
 
-  await buildLog('INFO', `Starting xppc.exe build — model: ${modelName} | project: ${resolvedProjectPath}`);
+  await buildLog('INFO', `Starting xppc.exe build — model: ${modelName}`);
   await buildLog('INFO', `  xppc.exe:              ${xppcExe}`);
   await buildLog('INFO', `  customPackagesPath:    ${customPackagesPath}`);
   await buildLog('INFO', `  microsoftPackagesPath: ${microsoftPackagesPath}`);
+  if (extraReferenceFolders.length > 0) {
+    await buildLog('INFO', `  extraReferenceFolders: ${extraReferenceFolders.join(', ')}`);
+  }
 
   // ------------------------------------------------------------------
   // Launch xppc.exe in background
   // ------------------------------------------------------------------
   const jobState = await launchXppcBackground(
     xppcExe,
-    resolvedProjectPath,
     modelName,
     customPackagesPath,
     microsoftPackagesPath,
+    extraReferenceFolders,
   );
 
   return {
@@ -496,11 +527,10 @@ export const buildProjectTool = async (params: any, _context: any) => {
       text: [
         `🔨 Build started (xppc.exe PID: ${jobState.pid})`,
         ``,
-        `Project: ${resolvedProjectPath}`,
-        `Model:   ${modelName}`,
-        `Log:     ${jobState.logFile}`,
+        `Model: ${modelName}`,
+        `Log:   ${jobState.logFile}`,
         ``,
-        `Call **build_d365fo_project** again (same project path) to check status and see output.`,
+        `Call **build_d365fo_project** again to check status and see output.`,
       ].join('\n'),
     }],
   };

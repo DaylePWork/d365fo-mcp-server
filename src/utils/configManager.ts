@@ -1113,6 +1113,15 @@ class ConfigManager {
   }
 
   /**
+   * Get the full active XPP environment config, including ReferencePackagesPaths.
+   * Returns null when no XPP config exists (CHE / non-UDE environment).
+   */
+  async getActiveXppConfig(): Promise<XppEnvironmentConfig | null> {
+    await this.ensureXppConfig();
+    return this.xppConfig;
+  }
+
+  /**
    * Get the cross-reference database server (UDE: CrossReferencesDbServerName).
    */
   async getXrefDbServer(): Promise<string | null> {

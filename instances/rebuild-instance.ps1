@@ -34,11 +34,13 @@ function Get-EnvPort([string]$envFile) {
 }
 
 # ── Helper: extract variable names from a .env file ─────────────────────────
+# Treats commented-out lines (e.g. "# KEY=value") as present-but-disabled so
+# that the missing-settings check doesn't flag vars the user has intentionally
+# left commented in their instance .env.
 function Get-EnvVarNames([string]$envFile) {
     $names = @()
     foreach ($line in (Get-Content $envFile)) {
-        # Match uncommented KEY=value lines (skip comments and blank lines)
-        if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=') {
+        if ($line -match '^\s*#?\s*([A-Za-z_][A-Za-z0-9_]*)\s*=') {
             $names += $Matches[1]
         }
     }

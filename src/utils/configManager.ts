@@ -900,11 +900,6 @@ class ConfigManager {
       return { modelName: this.autoDetectedProject.modelName, source: 'auto-detected from .rnrproj' };
     }
 
-    const envVar = process.env.D365FO_MODEL_NAME || null;
-    if (envVar) {
-      return { modelName: envVar, source: 'D365FO_MODEL_NAME env var' };
-    }
-
     return { modelName: null, source: '(not configured)' };
   }
 
@@ -916,6 +911,7 @@ class ConfigManager {
   async getWorkspaceInfoDiagnostics(): Promise<{
     modelName: string | null;
     modelSource: string;
+    isModelSourceAutoDetected: boolean;
     projectPath: string | null;
     projectSource: string;
     packagePath: string | null;
@@ -980,7 +976,8 @@ class ConfigManager {
       packageSource = 'well-known path probe';
     }
 
-    return { modelName, modelSource, projectPath, projectSource, packagePath, packageSource };
+    const isModelSourceAutoDetected = modelSource.includes('auto-detected');
+    return { modelName, modelSource, isModelSourceAutoDetected, projectPath, projectSource, packagePath, packageSource };
   }
 
   /**

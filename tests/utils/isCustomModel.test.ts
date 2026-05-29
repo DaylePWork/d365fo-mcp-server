@@ -10,7 +10,7 @@
  * independent of the prefix — while genuinely unrelated models stay standard.
  */
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { isCustomModel, clearAutoDetectedModels } from '../../src/utils/modelClassifier';
 
 const originalPrefix = process.env.EXTENSION_PREFIX;
@@ -24,6 +24,10 @@ function restore(key: string, value: string | undefined): void {
     process.env[key] = value;
   }
 }
+
+beforeEach(() => {
+  clearAutoDetectedModels();
+});
 
 afterEach(() => {
   restore('EXTENSION_PREFIX', originalPrefix);

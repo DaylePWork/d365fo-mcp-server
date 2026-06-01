@@ -81,16 +81,24 @@ export const runBpCheckTool = async (params: any, _context: any) => {
     const packagesRootPath = microsoftPackagesPath || packagesRoot;
 
     /**
-     * Build the args array for one invocation attempt.
-     * Required flags (modern xppbp.exe):
-     *   -metadata:<path>     — custom model metadata root (ModelStoreFolder in UDE)
-     *   -module:<name>       — package/module name (same as model for single-model packages)
-     *   -model:<name>        — model name
-     *   -packagesRoot:<path> — framework binaries root (FrameworkDirectory in UDE)
-     *   -all                 — check all element types
-     * Note: -car: generates an Excel (.xlsx) file, not XML — we rely on stdout instead.
+     * xppbp.exe CLI flag styles observed across versions:
+     *
+     *   Style A — colon separator (older):
+     *     -metadata:<path>  -module:<name>  -model:<name>  -packagesRoot:<path>  -all
+     *     -filter:<name>  (filter by element name)
+     *
+     *   Style B — equals separator (newer, 10.0.24+):
+     *     -metadata=<path>  -module=<name>  -model=<name>  -packagesRoot=<path>  -all
+     *     class:<Name>  (positional element-type filter, e.g. "class:MyClass")
+     *
+     *   Style C — legacy packagesroot only (no -metadata flag):
+     *     -packagesroot:<path>  -module:<name>  -model:<name>  -all
+     *
+     * We try A → B → C in order, stopping at the first that doesn't return help text.
      */
-    const buildArgs = (metadataFlag: string): string[] => {
+
+    // Style A — colon separator
+    const buildArgsColonStyle = (metadataFlag: string): string[] => {
       const a: string[] = [
         `${metadataFlag}${metadataPath}`,
         `-module:${modelName}`,
@@ -102,30 +110,56 @@ export const runBpCheckTool = async (params: any, _context: any) => {
       return a;
     };
 
+    // Style B — equals separator (xppbp positional element filter: "class:Name")
+    const buildArgsEqStyle = (): string[] => {
+      const a: string[] = [
+        `-metadata=${metadataPath}`,
+        `-module=${modelName}`,
+        `-model=${modelName}`,
+        `-packagesRoot=${packagesRootPath}`,
+        `-all`,
+      ];
+      // Element-type filter: positional "class:Name" — no leading dash
+      if (targetFilter) a.push(`class:${targetFilter}`);
+      return a;
+    };
+
     let stdout = '';
     let stderr = '';
 
-    // --- First attempt: modern -metadata: flag ---
-    const args = buildArgs('-metadata:');
     const { combined, lastStdout, lastStderr } = await withOperationLock(
       `bp:${modelName}`,
       async () => {
-        console.error(`[run_bp_check] Attempt 1: "${xppbpPath}" ${args.join(' ')}`);
+        // --- Attempt 1: colon style with -metadata: ---
+        const args1 = buildArgsColonStyle('-metadata:');
+        console.error(`[run_bp_check] Attempt 1 (-metadata: colon): "${xppbpPath}" ${args1.join(' ')}`);
         try {
-          ({ stdout, stderr } = await tryXppbp(xppbpPath, args));
+          ({ stdout, stderr } = await tryXppbp(xppbpPath, args1));
         } catch (e: any) {
           stdout = e.stdout ?? '';
           stderr = e.stderr ?? '';
         }
-
         let localCombined = [stdout, stderr].filter(Boolean).join('\n').trim();
 
-        // --- Fallback: legacy -packagesroot: flag (older xppbp without -metadata) ---
+        // --- Attempt 2: equals style (-metadata=, -module=, ...) ---
         if (HELP_TEXT_PATTERN.test(localCombined) || localCombined === '') {
-          const fallbackArgs = buildArgs('-packagesroot:');
-          console.error(`[run_bp_check] Attempt 2 (legacy flag): "${xppbpPath}" ${fallbackArgs.join(' ')}`);
+          const args2 = buildArgsEqStyle();
+          console.error(`[run_bp_check] Attempt 2 (-metadata= equals): "${xppbpPath}" ${args2.join(' ')}`);
           try {
-            ({ stdout, stderr } = await tryXppbp(xppbpPath, fallbackArgs));
+            ({ stdout, stderr } = await tryXppbp(xppbpPath, args2));
+          } catch (e: any) {
+            stdout = e.stdout ?? '';
+            stderr = e.stderr ?? '';
+          }
+          localCombined = [stdout, stderr].filter(Boolean).join('\n').trim();
+        }
+
+        // --- Attempt 3: legacy -packagesroot: (no -metadata flag) ---
+        if (HELP_TEXT_PATTERN.test(localCombined) || localCombined === '') {
+          const args3 = buildArgsColonStyle('-packagesroot:');
+          console.error(`[run_bp_check] Attempt 3 (legacy -packagesroot:): "${xppbpPath}" ${args3.join(' ')}`);
+          try {
+            ({ stdout, stderr } = await tryXppbp(xppbpPath, args3));
           } catch (e: any) {
             stdout = e.stdout ?? '';
             stderr = e.stderr ?? '';
@@ -145,7 +179,7 @@ export const runBpCheckTool = async (params: any, _context: any) => {
       return {
         content: [{
           type: 'text',
-          text: `❌ xppbp.exe returned its help text for both -metadata: and -packagesroot: flags.\n\nThis usually means the installed xppbp.exe version uses a different CLI.\n\nRaw output:\n\n${combined}`
+          text: `❌ xppbp.exe returned its help text for all three flag-style attempts (-metadata:, -metadata=, -packagesroot:).\n\nThis usually means the installed xppbp.exe version uses an unrecognised CLI format.\n\nRaw output:\n\n${combined}`
         }],
         isError: true
       };
@@ -155,11 +189,17 @@ export const runBpCheckTool = async (params: any, _context: any) => {
     // (-car: generates an Excel file which is not human-readable as text.)
     const logContent = combined;
 
-    // Detect violations in XML log or plain text output
-    const hasErrors = /BPError|<Diagnostic|severity="error"/i.test(logContent)
-      || /BPError|severity\s*[:=]\s*error/i.test(combined);
+    // Detect violations in output.
+    // xppbp emits two distinct line patterns:
+    //   Errors:   "BPError..." or XML <Diagnostic severity="error">
+    //   Warnings: "BestPractices Warning: ..." or "BestPractices Error: ..."
+    // Both must trigger the warning status — a warning is still a violation.
+    const hasIssues = /BPError|<Diagnostic|severity="error"|BestPractices (Warning|Error):/i.test(logContent)
+      || /BPError|severity\s*[:=]\s*error/i.test(combined)
+      || /^Warnings:\s*[1-9]/m.test(combined)
+      || /^Errors:\s*[1-9]/m.test(combined);
 
-    const summary = hasErrors ? '⚠️ BP Check completed with issues' : '✅ BP Check passed';
+    const summary = hasIssues ? '⚠️ BP Check completed with issues' : '✅ BP Check passed';
     const details = logContent || combined || '(no output)';
 
     return {

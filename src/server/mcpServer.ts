@@ -1821,11 +1821,35 @@ SourceCode format for classes: class declaration with member vars inside { }, me
       },
       {
         name: 'build_d365fo_project',
-        description: 'Run MSBuild compilation on a D365FO Visual Studio project (.rnrproj) to capture X++ compiler errors without opening Visual Studio. Returns build output including errors and warnings.',
+        description:
+          'Builds a D365FO model using the X++ compiler (xppc.exe). ' +
+          'Compiles the ENTIRE MODEL — not just one project file. ' +
+          'Runs in the background: first call starts the build; call again to poll status and see output. ' +
+          'Use fullBuild:true when xppc reports "model element has not been successfully compiled since it was last changed" (stale symbol error). ' +
+          'Use buildReferencedModels:true to also build custom/ISV dependencies first (reads <ModuleReferences> from the model descriptor; skips Microsoft standard models; topological order).',
         inputSchema: {
           type: 'object',
           properties: {
-            projectPath: { type: 'string', description: 'Absolute path to the .rnrproj file (e.g. K:\\\\repos\\\\MySolution\\\\MyProject\\\\MyProject.rnrproj). Auto-detected from .mcp.json if omitted.' },
+            modelName: {
+              type: 'string',
+              description: 'D365FO model name to build (e.g. MyCustomModel). Auto-detected from workspace if omitted.',
+            },
+            projectPath: {
+              type: 'string',
+              description: '(Legacy) Absolute path to a .rnrproj file — used only to extract the model name when modelName is not provided.',
+            },
+            force: {
+              type: 'boolean',
+              description: 'Kill any running build processes for this model and restart.',
+            },
+            fullBuild: {
+              type: 'boolean',
+              description: 'Full recompile of the TARGET model only (deps stay incremental). Use when xppc reports stale symbol errors.',
+            },
+            buildReferencedModels: {
+              type: 'boolean',
+              description: 'Also build all custom/ISV models this model depends on before building the target. Skips Microsoft standard models.',
+            },
           },
           required: [],
         },

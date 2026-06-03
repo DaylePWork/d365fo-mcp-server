@@ -49,7 +49,7 @@ Claude Code stores MCP server config in `~/.claude.json` (not in `.mcp.json` lik
 claude mcp add-json --scope user d365fo-mcp-tools '{"type":"http","url":"https://your-server.azurewebsites.net/mcp/","alwaysLoad":true}'
 ```
 
-### Scenario D: Local stdio (single developer)
+### Scenario B: Local stdio (single developer)
 
 ```powershell
 claude mcp add-json --scope user d365fo-mcp-tools '{"type":"stdio","command":"node","args":["K:\\d365fo-mcp-server\\dist\\index.js"],"env":{"DB_PATH":"K:\\d365fo-mcp-server\\data\\xpp-metadata.db","LABELS_DB_PATH":"K:\\d365fo-mcp-server\\data\\xpp-metadata-labels.db","D365FO_SOLUTIONS_PATH":"K:\\repos\\MySolution\\projects","D365FO_WORKSPACE_PATH":"K:\\AosService\\PackagesLocalDirectory\\YourPackageName\\YourModelName"},"alwaysLoad":true}'
@@ -57,7 +57,7 @@ claude mcp add-json --scope user d365fo-mcp-tools '{"type":"stdio","command":"no
 
 > In PowerShell single-quoted strings, `"` does **not** need escaping. Double backslashes `\\` are still required — that is JSON path escaping, not shell escaping.
 
-### Scenario B: Hybrid — Azure search + local writes
+### Scenario C: Hybrid — Azure search + local writes
 
 Run both commands:
 
@@ -157,10 +157,10 @@ If a file appears on disk, the C# bridge is working.
 
 | Feature | GitHub Copilot (VS 2022) | Claude Code CLI |
 |---------|--------------------------|-----------------|
-| Instruction file | `.github\copilot-instructions.md` | `CLAUDE.md` |
+| Instruction file | `.github\copilot-instructions.md` (in solutions parent folder — one copy covers all solutions) | `CLAUDE.md` (same location — solutions parent folder) |
 | Agent mode toggle | Required (VS 2022 Agent Mode) | Always agentic — no toggle needed |
 | Terminal commands | Hang in VS 2022 MCP context | Work normally |
-| Config file location | `%USERPROFILE%\.mcp.json` or next to `.sln` | `~/.claude.json` (via `claude mcp add`) or `.mcp.json` in project root |
+| Config file location | `%USERPROFILE%\.mcp.json` (user-scoped, covers all projects) | `~/.claude.json` (via `claude mcp add`) or `.mcp.json` in project root |
 | Config root key | `"servers"` | `"mcpServers"` |
 | Server type field | Not required | Explicit `"type"` recommended |
 | Always-load tools | Not available | `"alwaysLoad": true` — prevents tool deferral |

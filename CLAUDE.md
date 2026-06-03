@@ -1,7 +1,9 @@
 # D365 Finance & Operations X++ Development
 
-<!-- Copy this file to your D365FO solution parent folder alongside .mcp.json.
-     Claude Code reads CLAUDE.md automatically from the working directory upward.
+<!-- Copy this file to the parent folder that contains all your D365FO solution folders
+     (the same folder where .github\copilot-instructions.md lives for Copilot users).
+     Claude Code reads CLAUDE.md automatically from the working directory upward,
+     so one copy here covers every solution underneath — no per-solution copies needed.
 
      Full rules are delivered via the MCP `xpp_system_instructions` prompt.
      This file provides only the minimum static context needed when the MCP server
@@ -51,7 +53,7 @@ Call `get_workspace_info()` before doing anything with D365FO objects.
 5. Never use `today()` — use `DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone())`
 6. Never use hardcoded strings in Info/warning/error — use `@Model:Label`
 7. Call `search_labels()` before `create_label()` — reuse existing labels
-8. Extension naming depends on `EXTENSION_NAMING_STYLE` (check `get_workspace_info`). Default `prefix` → class `{Target}{Prefix}_Extension`, element `{Target}.{Prefix}Extension`; `model-name` → class `{Target}_{ModelName}_Extension`. Pass the BASE name to `create_d365fo_file`.
+8. Extension naming depends on `EXTENSION_NAMING_STYLE` (check `get_workspace_info`). Default `prefix` → class `{Target}{Prefix}_Extension`, element `{Target}.{Prefix}Extension`; `model-name` → class `{Target}_{ModelName}_Extension`, element `{Target}.{ModelName}`. Pass the BASE name to `create_d365fo_file` and let the tool apply the token — don't hand-build the infix.
 
 ## Terminal Note
 

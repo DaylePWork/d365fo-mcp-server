@@ -130,7 +130,7 @@ Claude Code uses a different config format from Copilot — `"mcpServers"` key, 
 claude mcp add-json --scope user d365fo-mcp-tools '{"type":"http","url":"https://your-server.azurewebsites.net/mcp/","alwaysLoad":true}'
 
 # Local stdio
-claude mcp add-json --scope user d365fo-mcp-tools '{"type":"stdio","command":"node","args":["K:\\d365fo-mcp-server\\dist\\index.js"],"env":{"DB_PATH":"K:\\d365fo-mcp-server\\data\\xpp-metadata.db","LABELS_DB_PATH":"K:\\d365fo-mcp-server\\data\\xpp-metadata-labels.db","D365FO_WORKSPACE_PATH":"K:\\AosService\\PackagesLocalDirectory\\YourPackageName\\YourModelName"},"alwaysLoad":true}'
+claude mcp add-json --scope user d365fo-mcp-tools '{"type":"stdio","command":"node","args":["K:\\d365fo-mcp-server\\dist\\index.js"],"env":{"DB_PATH":"K:\\d365fo-mcp-server\\data\\xpp-metadata.db","LABELS_DB_PATH":"K:\\d365fo-mcp-server\\data\\xpp-metadata-labels.db","D365FO_SOLUTIONS_PATH":"K:\\repos\\MySolution\\projects","D365FO_WORKSPACE_PATH":"K:\\AosService\\PackagesLocalDirectory\\YourPackageName\\YourModelName"},"alwaysLoad":true}'
 ```
 
 > `alwaysLoad: true` loads the d365fo tool list at session start, preventing Claude from routing X++ lookups to other connected code intelligence tools or built-in search.

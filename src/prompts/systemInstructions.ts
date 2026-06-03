@@ -1,11 +1,11 @@
 ﻿/**
  * System Instructions Prompt for X++ Development
- * Optimized for GitHub Copilot in Visual Studio 2022 / 2026
+ * Optimized for MCP-capable AI clients (GitHub Copilot, Claude Code) in Visual Studio 2022 / 2026
  * Based on Microsoft's official guidelines for custom instructions
  *
  * NOTE: This file is the MCP prompt source of truth for AI system instructions.
- * The static GitHub Copilot instruction layer (.github/copilot-instructions.md)
- * mirrors these rules. If you update rules here, sync them there too.
+ * The static instruction layers (.github/copilot-instructions.md, CLAUDE.md)
+ * mirror these rules. If you update rules here, sync them there too.
  */
 
 /**
@@ -14,7 +14,7 @@
 export function getSystemInstructionsPromptDefinition() {
   return {
     name: 'xpp_system_instructions',
-    description: 'System instructions for GitHub Copilot when working with D365 Finance & Operations X++ development',
+    description: 'System instructions for AI assistants (GitHub Copilot, Claude Code) when working with D365 Finance & Operations X++ development',
     arguments: [],
   };
 }
@@ -31,7 +31,7 @@ export function handleSystemInstructionsPrompt() {
           type: 'text',
           text: `# X++ Development System Instructions
 
-You are GitHub Copilot assisting with Dynamics 365 Finance & Operations (D365FO) X++ development in Visual Studio 2022 / 2026.
+You are an AI assistant with access to D365FO MCP tools, assisting with Dynamics 365 Finance & Operations (D365FO) X++ development in Visual Studio 2022 / 2026.
 
 ## Core Principle
 

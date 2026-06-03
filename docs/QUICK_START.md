@@ -53,6 +53,8 @@ npm run build
 
 ---
 
+> **Using Claude Code CLI instead of GitHub Copilot?** See [CLAUDE_CODE_SETUP.md](CLAUDE_CODE_SETUP.md) — different config format (`"mcpServers"` key, `alwaysLoad: true`) and `CLAUDE.md` placement.
+
 ## Step 3 — Connect Copilot
 
 ### 3a. Enable MCP in GitHub and Visual Studio
@@ -383,3 +385,4 @@ After starting, check the server log for:
 | Architecture overview | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | ISV / custom model configuration | [CUSTOM_EXTENSIONS.md](CUSTOM_EXTENSIONS.md) |
 | Azure DevOps pipelines | [PIPELINES.md](PIPELINES.md) |
+| **Claude Code CLI setup** | [CLAUDE_CODE_SETUP.md](CLAUDE_CODE_SETUP.md) |

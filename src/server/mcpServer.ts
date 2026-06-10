@@ -591,6 +591,13 @@ SourceCode format for classes: class declaration with member vars inside { }, me
                   '\u274c NEVER use PowerShell/create_file to overwrite D365FO objects \u2014 always use overwrite=true here.',
                 default: false,
               },
+              groundingToken: {
+                type: 'string',
+                description:
+                  'Provenance token returned by prepare_change. Proves the change was grounded in the indexed codebase. ' +
+                  'Required for *-extension objectTypes when GROUNDING_ENFORCE=true on the server. ' +
+                  'The token is object-bound: it only authorizes writes to the object it was issued for.',
+              },
             },
             required: ['objectType', 'objectName'],
           },
@@ -921,6 +928,13 @@ SourceCode format for classes: class declaration with member vars inside { }, me
               workspacePath: {
                 type: 'string',
                 description: 'Path to workspace for finding file'
+              },
+              groundingToken: {
+                type: 'string',
+                description:
+                  'Provenance token returned by prepare_change. Proves the change was grounded in the indexed codebase. ' +
+                  'Required for *-extension objectTypes when GROUNDING_ENFORCE=true on the server. ' +
+                  'The token is object-bound: it only authorizes writes to the object it was issued for.',
               },
             },
             required: ['objectType', 'objectName', 'operation'],
@@ -1994,7 +2008,9 @@ SourceCode format for classes: class declaration with member vars inside { }, me
           '[ExtensionOf] class not final (COC002), class not ending _Extension (COC003), ' +
           'CoC default param values (COC001), hardcoded strings in info/warning/error (BP001), ' +
           'doInsert/doUpdate/doDelete misuse (BP002), generic doc-comments (BP003), ' +
-          'missing AlternateKey on table XML (XML001).',
+          'missing AlternateKey on table XML (XML001). ' +
+          'Plus data-driven property rules mined from standard models (XML002 Label, ' +
+          'XML003 TableGroup, XML004 field EDT, XML005 ClusteredIndex).',
         inputSchema: {
           type: 'object',
           properties: {
@@ -2007,6 +2023,31 @@ SourceCode format for classes: class declaration with member vars inside { }, me
               enum: ['xpp', 'xml-table', 'xml-any'],
               default: 'xpp',
               description: '"xpp" for X++ source (default), "xml-table" for AxTable XML, "xml-any" for other XML.',
+            },
+            context: {
+              type: 'string',
+              description: 'Optional: owning class/table name, used in diagnostic messages.',
+            },
+          },
+          required: ['code'],
+        },
+      },
+      {
+        name: 'resolve_references',
+        description:
+          'Semantic reference resolver (<200 ms, index-only) — verifies that every type, ' +
+          'table field, method (incl. arity), enum, label and intrinsic target (tableStr, ' +
+          'fieldStr, classStr, …) in generated X++ code EXISTS in the indexed codebase. ' +
+          'Catches hallucinated symbols BEFORE the compiler does. ' +
+          'Call AFTER generating code and BEFORE create_d365fo_file / modify_d365fo_file. ' +
+          'Returns structured violations {kind, severity, line, identifier, detail} — fix errors in the same turn. ' +
+          'When GROUNDING_ENFORCE=true, write tools run this check internally and reject code with errors.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            code: {
+              type: 'string',
+              description: 'X++ source code to resolve. Paste the full generated method/class text.',
             },
             context: {
               type: 'string',
@@ -2051,6 +2092,44 @@ SourceCode format for classes: class declaration with member vars inside { }, me
             },
           },
           required: ['goal', 'objectName'],
+        },
+      },
+      {
+        name: 'prepare_create',
+        description:
+          'Single-round context aggregator for creating NEW D365FO objects (mirror of prepare_change). ' +
+          'Returns in ONE call: name collision check, naming validation with the auto-applied prefix, ' +
+          'similar existing objects to copy patterns from, EDT suggestions for planned fields, ' +
+          'reusable labels, mined property defaults (standard-model statistics), and a grounding token. ' +
+          'Replaces the search → validate_object_naming → suggest_edt → search_labels sequence with one call. ' +
+          'Call BEFORE generating any new object.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            goal: {
+              type: 'string',
+              description: 'One-sentence description of what the new object is for. Example: "Parameter table for the Contoso import feature."',
+            },
+            objectName: {
+              type: 'string',
+              description: 'Proposed BASE name WITHOUT model prefix (same value you would pass to create_d365fo_file). Example: "ImportParameters".',
+            },
+            objectType: {
+              type: 'string',
+              enum: [
+                'class', 'table', 'form', 'enum', 'edt', 'query', 'view',
+                'data-entity', 'report', 'menu-item-display', 'menu-item-action',
+                'menu-item-output', 'security-privilege', 'security-duty', 'security-role',
+              ],
+              description: 'Type of the new D365FO object.',
+            },
+            fieldsHint: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'For tables/views: planned field names — each gets EDT suggestions from the index.',
+            },
+          },
+          required: ['goal', 'objectName', 'objectType'],
         },
       },
     ],

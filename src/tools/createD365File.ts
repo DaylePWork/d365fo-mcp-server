@@ -15,6 +15,7 @@ import { ensureXppDocComment, ensureBlankLineBeforeClosingBrace } from '../utils
 import { decodeXmlEntitiesFromXppSource } from './modifyD365File.js';
 import { bridgeValidateAfterWrite, canBridgeCreate, bridgeCreateObject } from '../bridge/index.js';
 import { enforceGrounding } from '../utils/provenanceStore.js';
+import { gateOnReferenceErrors } from './resolveReferences.js';
 import { invalidateCache } from './updateSymbolIndex.js';
 import { normalizeD365Xml } from '../utils/d365XmlNormalizer.js';
 
@@ -3318,6 +3319,7 @@ export async function handleCreateD365File(
   context?: {
     bridge?: import('../bridge/bridgeClient.js').BridgeClient;
     cache?: import('../cache/redisCache.js').RedisCacheService;
+    symbolIndex?: import('../metadata/symbolIndex.js').XppSymbolIndex;
   },
 ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   const args = CreateD365FileArgsSchema.parse(request.params.arguments);
@@ -3333,6 +3335,15 @@ export async function handleCreateD365File(
     );
     if (groundingError) return groundingError;
   }
+
+  // Semantic reference gate: when GROUNDING_ENFORCE=true, every identifier in the
+  // X++ source must be proven against the symbol index before it reaches disk.
+  const referenceError = gateOnReferenceErrors(
+    args.sourceCode,
+    context?.symbolIndex,
+    `create_d365fo_file(objectType="${args.objectType}", objectName="${args.objectName}")`,
+  );
+  if (referenceError) return referenceError;
 
   try {
     // Step 1: Try to find and parse .rnrproj to get actual ModelName

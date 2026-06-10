@@ -59,6 +59,7 @@ import { undoLastModificationTool } from './undoLastModification.js';
 import { xppKnowledgeTool } from './xppKnowledge.js';
 import { d365foErrorHelpTool } from './d365foErrorHelp.js';
 import { validateXppTool } from './validateXpp.js';
+import { resolveReferencesTool } from './resolveReferences.js';
 import { prepareChangeTool } from './prepareChange.js';
 import { recordToolStart, startMetricsLogging } from '../utils/toolMetrics.js';
 import { buildProgressMessage } from '../utils/toolProgressMessage.js';
@@ -392,6 +393,8 @@ export function registerToolHandler(server: Server, context: XppServerContext): 
         return xppKnowledgeTool(request);
       case 'validate_xpp':
         return validateXppTool(request);
+      case 'resolve_references':
+        return resolveReferencesTool(request, context);
       case 'prepare_change':
         return prepareChangeTool(request, context);
       case 'get_workspace_info': {

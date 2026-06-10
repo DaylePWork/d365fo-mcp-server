@@ -30,6 +30,7 @@ import { invalidateCache } from './updateSymbolIndex.js';
 import { ProjectFileManager, ProjectFileFinder } from './createD365File.js';
 import { normalizeD365Xml } from '../utils/d365XmlNormalizer.js';
 import { enforceGrounding } from '../utils/provenanceStore.js';
+import { gateOnReferenceErrors } from './resolveReferences.js';
 
 /**
  * Decode the standard XML entities (&lt;, &gt;, &apos;, &quot;, &amp;) and normalise
@@ -389,6 +390,16 @@ export async function modifyD365FileTool(request: CallToolRequest, context: XppS
       );
       if (groundingError) return groundingError;
     }
+
+    // Semantic reference gate: when GROUNDING_ENFORCE=true, every identifier in
+    // X++ source about to be written must be proven against the symbol index.
+    const xppToWrite = args.sourceCode ?? args.methodCode ?? args.newCode;
+    const referenceError = gateOnReferenceErrors(
+      xppToWrite,
+      context.symbolIndex,
+      `modify_d365fo_file(objectType="${args.objectType}", objectName="${args.objectName}", operation="${args.operation}")`,
+    );
+    if (referenceError) return referenceError;
 
     const { symbolIndex } = context;
     const {

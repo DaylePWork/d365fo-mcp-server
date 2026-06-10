@@ -140,10 +140,15 @@ After the call, read the response: \`isError=true\` means the change did NOT app
 3. Incorrect signatures cause compilation errors
 
 ### 3. Code Generation Workflow
-**For ANY code generation request:**
-1. \`analyze_code_patterns(scenario)\` - learn from real codebase
-2. \`search(...)\` - find similar implementations
-3. \`get_class_info(...)\` or \`get_table_info(...)\` - understand dependencies
+**Extension work (CoC, event handler, table/form extension) — 3 calls total:**
+1. \`prepare_change(goal, objectName, methodName?)\` — ONE call returns signature, existing CoC wrappers, eligibility, strategy + \`groundingToken\`
+2. Generate the code, then \`resolve_references(code)\` + \`validate_xpp(code)\` — fix any errors in the same turn
+3. \`create_d365fo_file\`/\`modify_d365fo_file\` with \`groundingToken\`
+
+**New objects:**
+1. \`analyze_code_patterns(scenario)\` / \`search(...)\` - learn from real codebase
+2. \`get_class_info(...)\` or \`get_table_info(...)\` - understand dependencies
+3. Generate, then \`resolve_references(code)\` — every type/field/method/label must be proven by the index
 4. \`generate_code(...)\` or \`create_d365fo_file(...)\` - create with correct patterns
 5. **NEVER run \`build_d365fo_project()\` automatically.** Builds take a long time and block the user. After completing changes, tell the user the changes are done and they can build manually when ready. Only run \`build_d365fo_project()\` when the user explicitly requests it ("build", "compile", "check errors"). If after a requested build there are X++ errors, fix them immediately using \`modify_d365fo_file\` and rebuild until clean.
 
@@ -175,10 +180,10 @@ PowerShell and Python scripts hang indefinitely in VS 2022 MCP integration. When
 3. \`create_d365fo_file(objectType="class", objectName="MyDimHelper", addToProject=true)\`
 
 ### Creating Chain of Command Extension
-1. \`get_method_signature("CustTable", "validateWrite")\` → exact signature
-2. \`find_coc_extensions("CustTable")\` → check existing wrappers
-3. \`create_d365fo_file(objectType="class-extension", objectName="CustTableMY_Extension")\`
-4. Confirm the wrapper in chat, then \`modify_d365fo_file(operation="add-method", sourceCode="<CoC wrapper>")\` (applies immediately)
+1. \`prepare_change(goal="...", objectName="CustTable", methodName="validateWrite")\` → signature + existing wrappers + \`groundingToken\` (replaces get_method_signature + find_coc_extensions)
+2. Generate wrapper → \`resolve_references(code)\` → fix errors
+3. \`create_d365fo_file(objectType="class-extension", objectName="CustTableMY_Extension", groundingToken=...)\`
+4. Confirm the wrapper in chat, then \`modify_d365fo_file(operation="add-method", sourceCode="<CoC wrapper>", groundingToken=...)\` (applies immediately)
 
 ### Finding Methods
 - Semantic (concept): \`search("total", type="method")\`

@@ -2031,6 +2031,31 @@ SourceCode format for classes: class declaration with member vars inside { }, me
         },
       },
       {
+        name: 'resolve_references',
+        description:
+          'Semantic reference resolver (<200 ms, index-only) — verifies that every type, ' +
+          'table field, method (incl. arity), enum, label and intrinsic target (tableStr, ' +
+          'fieldStr, classStr, …) in generated X++ code EXISTS in the indexed codebase. ' +
+          'Catches hallucinated symbols BEFORE the compiler does. ' +
+          'Call AFTER generating code and BEFORE create_d365fo_file / modify_d365fo_file. ' +
+          'Returns structured violations {kind, severity, line, identifier, detail} — fix errors in the same turn. ' +
+          'When GROUNDING_ENFORCE=true, write tools run this check internally and reject code with errors.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            code: {
+              type: 'string',
+              description: 'X++ source code to resolve. Paste the full generated method/class text.',
+            },
+            context: {
+              type: 'string',
+              description: 'Optional: owning class/table name, used in diagnostic messages.',
+            },
+          },
+          required: ['code'],
+        },
+      },
+      {
         name: 'prepare_change',
         description:
           'Single-round context aggregator for D365FO extension work. ' +

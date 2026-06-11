@@ -159,12 +159,14 @@ flowchart LR
 | `validate_xpp` | Offline BP validator, < 50 ms: deprecated APIs, CoC correctness, select anti-patterns, data-driven XML property rules mined from standard models | automatically, after generation |
 | `validate_form_pattern` | See [Form Patterns](#-form-patterns-3) | before form writes |
 | `review_workspace_changes` | AI code review of uncommitted X++ changes (git diff) | on request: *"Review my changes"* |
+> **Grounding enforcement:** `prepare_change` issues a SHA-256 provenance token (30-min TTL) **bound to the object it was issued for**. When `GROUNDING_ENFORCE=true` is set in `.env`:
+> - extension patterns in `generate_code` and extension objectTypes in `create_d365fo_file` / `modify_d365fo_file` require a valid token for the target object, and
+> - X++ source passed to `create_d365fo_file` / `modify_d365fo_file` is run through `resolve_references` — the write is rejected while any identifier cannot be proven against the index.
+>
+> This ensures generated code is grounded in your actual codebase, not AI training data.
+>
+> **Hybrid deployment note:** grounding tokens live in the issuing process's memory. In `write-only` mode (local companion) `prepare_change` is not exposed and tokens issued by the read-only/Azure instance cannot be validated locally, so `GROUNDING_ENFORCE=true` is **ignored** there (with a startup warning) — otherwise the agent would loop forever between the two servers. Only enable enforcement on a `full`-mode server.
 
 ---
 
-## Tips
-
-- **Describe goals, not tools.** The instruction files route requests automatically — *"add a priority field to CustTable and show it on the form"* triggers the whole chain.
-- **Let the gates work.** `GROUNDING_ENFORCE` and `FORM_PATTERN_ENFORCE` (both default on) reject ungrounded or structurally invalid writes — that's the feature, not friction.
-- **Verify after writing.** `verify_d365fo_project` confirms disk + project registration in one call.
-- **Full conversations:** [USAGE_EXAMPLES.md](USAGE_EXAMPLES.md) shows seven real multi-tool scenarios end to end.
+## Tool Details

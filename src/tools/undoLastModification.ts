@@ -156,7 +156,7 @@ async function cleanupIndexAfterUndo(
 
   try {
     // 1. Remove stale symbols from SQLite
-    const { deletedCount, objectNames } = symbolIndex.removeSymbolsByFile(filePath);
+    const { deletedCount } = symbolIndex.removeSymbolsByFile(filePath);
     console.error(`[undo] Removed ${deletedCount} stale symbol(s) for ${path.basename(filePath)}`);
 
     // 2. Remove stale labels (label .txt files have the same path pattern)

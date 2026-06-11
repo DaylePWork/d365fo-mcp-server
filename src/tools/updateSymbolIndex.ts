@@ -105,7 +105,7 @@ export const updateSymbolIndexTool = async (params: any, context: XppServerConte
       console.error(`[update_symbol_index] File deleted — cleaning up stale entries for "${objectName}"`);
 
       // 1. Remove symbols from SQLite
-      const { deletedCount, objectNames } = symbolIndex.removeSymbolsByFile(filePath);
+      const { deletedCount } = symbolIndex.removeSymbolsByFile(filePath);
 
       // 2. Remove labels from labels DB (label files live alongside XML)
       const labelCount = symbolIndex.removeLabelsByFile(filePath);

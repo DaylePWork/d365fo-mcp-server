@@ -297,6 +297,7 @@ public class FpmTestDetails extends FormRun
     const index = new XppSymbolIndex(':memory:', ':memory:');
     try {
       (index as any).indexForms(formsDir, 'TestModel');
+      index.flushPropertyStats();
 
       const db = index.getReadDb();
       expect(hasMinedPatternData(db)).toBe(true);

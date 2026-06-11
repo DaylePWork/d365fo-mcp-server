@@ -83,6 +83,8 @@ export const TOOL_ANNOTATIONS: Record<string, ToolAnnotations> = {
   get_api_usage_patterns:           read('Get API usage patterns'),
   get_table_patterns:               read('Get table patterns'),
   get_form_patterns:                read('Get form patterns'),
+  get_form_pattern_spec:            read('Get form pattern spec'),
+  validate_form_pattern:            read('Validate form pattern'),
   get_xpp_knowledge:                read('Read X++ knowledge base'),
   get_d365fo_error_help:            read('Look up D365FO error help'),
   code_completion:                  read('Suggest code completions'),

@@ -937,7 +937,7 @@ async function extractEdts(
 /**
  * Extract AxReport metadata.
  * Reports are stored as lightweight stubs — just name + file_path.
- * The get_report_info tool reads the live XML on demand rather than
+ * The get_object_info(report) reader loads the live XML on demand rather than
  * caching a full parse, so we only need enough for the symbol DB entry.
  */
 async function extractReports(

@@ -59,7 +59,9 @@ export const READER_DISPATCH: Record<string, ReaderDispatch> = {
   'config-key':         { tool: getConfigKeyInfoTool,     toolName: 'get_config_key_info',        buildArgs: byName('name') },
   'security-policy':    { tool: getSecurityPolicyInfoTool,toolName: 'get_security_policy_info',   buildArgs: byName('policyName') },
   'macro':              { tool: getMacroInfoTool,         toolName: 'get_macro_info',             buildArgs: byName('macroName') },
-  // Additional types exposed only via batch_get_info (kept as dedicated tools too):
+  // Additional types reachable via batch_get_info AND still published as their
+  // own dedicated tools (different argument shape: type discriminator + name).
+  // Unlike the per-name OBJECT_INFO_TYPES above, these stay registered separately.
   'table-extension':    { tool: tableExtensionInfoTool,   toolName: 'get_table_extension_info',   buildArgs: byName('tableName') },
   'security-privilege': { tool: securityArtifactInfoTool, toolName: 'get_security_artifact_info', buildArgs: n => ({ name: n, artifactType: 'privilege' }) },
   'security-duty':      { tool: securityArtifactInfoTool, toolName: 'get_security_artifact_info', buildArgs: n => ({ name: n, artifactType: 'duty' }) },

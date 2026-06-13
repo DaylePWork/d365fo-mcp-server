@@ -86,7 +86,7 @@ async function directXmlReplaceCode(
 ): Promise<{ success: boolean; message: string } | null> {
   try {
     // D365FO XML files on disk are CRLF, but oldCode passed by the AI is typically
-    // copied from get_method / get_class_info output that already strips CRs.
+    // copied from get_method_source / get_object_info output that already strips CRs.
     // Normalize both sides to LF for matching, then let normalizeD365Xml put the
     // file back into D365FO's canonical shape (no BOM, CRLF, no trailing newline).
     const rawContent = await fs.readFile(filePath, 'utf-8');
@@ -419,7 +419,7 @@ export async function modifyD365FileTool(request: CallToolRequest, context: XppS
     // ── Auto-resolve parentControl for add-control on form-extension ─────────
     // When `parentControl` is a fuzzy / lowercase string (e.g. "general"), look
     // up the base form XML, walk the control tree, and resolve to the exact name.
-    // This makes add-control seamless — no prior get_form_info call required.
+    // This makes add-control seamless — no prior get_object_info(form) call required.
     let addControlNote = '';
     if (operation === 'add-control' && objectType === 'form-extension' && args.parentControl) {
       const resolution = await resolveParentControl(
@@ -1325,7 +1325,7 @@ async function createFileBackup(filePath: string): Promise<void> {
 //
 // When add-control is called with a fuzzy parentControl (e.g. "general"),
 // these helpers find the base form XML, walk the control hierarchy, and return
-// the exact control name so the caller never has to call get_form_info first.
+// the exact control name so the caller never has to call get_object_info(form) first.
 
 interface ResolvedControl {
   name: string;

@@ -494,7 +494,7 @@ export async function modifyD365FileTool(request: CallToolRequest, context: XppS
                   `Allowed control types here: ${allowedList}.\n\n` +
                   `Options:\n` +
                   `  1. Use an allowed control type (e.g. controlType="String" for a bound field).\n` +
-                  `  2. Target a different parent container (use get_form_info to inspect the hierarchy).\n` +
+                  `  2. Target a different parent container (use get_object_info(objectType="form", name=...) to inspect the hierarchy).\n` +
                   `  3. Set FORM_PATTERN_ENFORCE=false to bypass pattern enforcement.`,
               }],
               isError: true,

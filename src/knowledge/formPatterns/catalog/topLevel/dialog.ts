@@ -158,7 +158,7 @@ export const dialogDoubleTabs: FormPatternSpec = {
   xmlName: 'DialogDoubleTabs',
   variantOf: 'Dialog',
   displayName: 'Dialog w/ Double Tabs',
-  versions: ['1.2', '1.1', '1.0'],
+  versions: ['1.3', '1.2', '1.1', '1.0'],
   purpose: 'Modal dialog with two independent tab controls — typically a header group of tabs and a details group.',
   whenToUse: ['Dialog content that requires two separate tab groups at the same level'],
   whenNotToUse: ['Single tab group → Dialog w/ Tabs or Dialog w/ FastTabs'],

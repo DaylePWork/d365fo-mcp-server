@@ -10,7 +10,7 @@ export const simpleDetailsToolbarFields: FormPatternSpec = {
   xmlName: 'SimpleDetails-ToolbarFields',
   xmlAliases: ['SimpleDetails', 'SimpleDetailsToolbarFields', 'SimpleDetailsWToolbar'],
   displayName: 'Simple Details w/ Toolbar and Fields',
-  versions: ['1.1', '1.0'],
+  versions: ['1.3', '1.1', '1.0'],
   purpose: 'Shows fields for a single base record with an optional toolbar — the default Simple Details variant.',
   whenToUse: [
     'Form focused on ONE record (no grid/list navigation)',

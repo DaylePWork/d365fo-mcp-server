@@ -34,7 +34,7 @@ import { taskPatterns } from './catalog/topLevel/task.js';
 import { wizard } from './catalog/topLevel/wizard.js';
 
 import { customFilterSubPatterns } from './catalog/subPatterns/customFilters.js';
-import { fieldsSubPatterns } from './catalog/subPatterns/fields.js';
+import { allFieldsSubPatterns } from './catalog/subPatterns/fields.js';
 import { panelSubPatterns } from './catalog/subPatterns/panels.js';
 import { toolbarSubPatterns } from './catalog/subPatterns/toolbar.js';
 import { workspaceSectionSubPatterns } from './catalog/subPatterns/workspaceSections.js';
@@ -77,7 +77,7 @@ export const FORM_PATTERN_CATALOG: FormPatternCatalog = {
   ],
   subPatterns: [
     ...customFilterSubPatterns,
-    ...fieldsSubPatterns,
+    ...allFieldsSubPatterns,
     ...panelSubPatterns,
     ...toolbarSubPatterns,
     ...workspaceSectionSubPatterns,

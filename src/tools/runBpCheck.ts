@@ -45,7 +45,15 @@ export const runBpCheckTool = async (params: any, _context: any) => {
     // In UDE the custom packages path (ModelStoreFolder) is the metadata root,
     // while the framework packages path (FrameworkDirectory) is the binaries root.
     // For traditional environments both roles are served by packagesRoot.
-    // Priority 1: XPP config (UDE) — authoritative source for all paths (same as build_d365fo_project)
+    //
+    // Path resolution — intentionally mirrors build_d365fo_project:
+    //   Priority 1: XPP config file (UDE — authoritative when present).
+    //               Note: when an XPP config exists, any customPackagesPath /
+    //               microsoftPackagesPath values in .mcp.json are NOT consulted.
+    //               Use params.packagePath to override the final packagesRoot.
+    //   Priority 2: configManager methods (.mcp.json context overrides, then
+    //               XPP config auto-detection as a second chance for CHE).
+    //   Priority 3: Well-known PackagesLocalDirectory probe (CHE fallback).
     let customPackagesPath: string | null = null;
     let microsoftPackagesPath: string | null = null;
     const xppConfig = await configManager.getActiveXppConfig();
@@ -55,10 +63,25 @@ export const runBpCheckTool = async (params: any, _context: any) => {
     }
 
     // Priority 2: configManager explicit methods (.mcp.json overrides)
-    if (!customPackagesPath) customPackagesPath = await configManager.getCustomPackagesPath();
+    if (!customPackagesPath)    customPackagesPath    = await configManager.getCustomPackagesPath();
     if (!microsoftPackagesPath) microsoftPackagesPath = await configManager.getMicrosoftPackagesPath();
 
-    // Priority 3: Fallback to general package path (CHE / non-UDE)
+    // Priority 3: probe well-known PackagesLocalDirectory locations (CHE)
+    if (!microsoftPackagesPath) {
+      for (const candidate of [
+        'C:\\AOSService\\PackagesLocalDirectory',
+        'K:\\AOSService\\PackagesLocalDirectory',
+        'J:\\AOSService\\PackagesLocalDirectory',
+        'I:\\AOSService\\PackagesLocalDirectory',
+      ]) {
+        try { await fs.access(candidate); microsoftPackagesPath = candidate; break; } catch { /* next */ }
+      }
+    }
+
+    // In CHE, custom and Microsoft packages share the same PackagesLocalDirectory
+    if (!customPackagesPath && microsoftPackagesPath) customPackagesPath = microsoftPackagesPath;
+
+    // Final packagesRoot: explicit param override → microsoft path → custom path → legacy env var → hardcoded default
     const packagesRoot = params.packagePath
       || microsoftPackagesPath
       || customPackagesPath
@@ -115,16 +138,16 @@ export const runBpCheckTool = async (params: any, _context: any) => {
       return a;
     };
 
-    // Style B — equals separator with -compilerMetadata (xppbp 10.0.24+: positional "<type>:<Name>" filter, no leading dash)
-    const buildArgsEqStyle = (useCompilerMetadataEq: boolean): string[] => {
+    // Style B — equals separator (xppbp 10.0.24+: positional "<type>:<Name>" filter, no leading dash)
+    const buildArgsEqStyle = ({ compilerMetadata }: { compilerMetadata: boolean }): string[] => {
       const a: string[] = [
         `-metadata=${metadataPath}`,
         `-module=${modelName}`,
         `-model=${modelName}`,
       ];
 
-      // Try the newer -compilerMetadata= flag first in Style B
-      if (useCompilerMetadataEq) {
+      // -compilerMetadata= is the newer flag; fall back to -packagesRoot= for older xppbp
+      if (compilerMetadata) {
         a.push(`-compilerMetadata=${compilerMetadataPath}`);
       } else {
         a.push(`-packagesRoot=${compilerMetadataPath}`);
@@ -173,7 +196,7 @@ export const runBpCheckTool = async (params: any, _context: any) => {
 
         // --- Attempt 2: equals style with -compilerMetadata= (xppbp 10.0.24+) ---
         if (HELP_TEXT_PATTERN.test(localCombined) || localCombined === '') {
-          const args2 = buildArgsEqStyle(true);  // useCompilerMetadataEq = true
+          const args2 = buildArgsEqStyle({ compilerMetadata: true });
           console.error(`[run_bp_check] Attempt 2 (-compilerMetadata= equals): "${xppbpPath}" ${args2.join(' ')}`);
           try {
             ({ stdout, stderr } = await tryXppbp(xppbpPath, args2));
@@ -186,7 +209,7 @@ export const runBpCheckTool = async (params: any, _context: any) => {
 
         // --- Attempt 3: equals style with -packagesRoot= (fallback for older xppbp) ---
         if (HELP_TEXT_PATTERN.test(localCombined) || localCombined === '') {
-          const args3 = buildArgsEqStyle(false);  // useCompilerMetadataEq = false, falls back to -packagesRoot=
+          const args3 = buildArgsEqStyle({ compilerMetadata: false });
           console.error(`[run_bp_check] Attempt 3 (-packagesRoot= equals fallback): "${xppbpPath}" ${args3.join(' ')}`);
           try {
             ({ stdout, stderr } = await tryXppbp(xppbpPath, args3));

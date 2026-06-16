@@ -34,6 +34,7 @@ import type {
   BridgeEventSubscriberResult,
   BridgeSmartTableResult,
   BridgeApiUsageCallersResult,
+  BridgeReferenceInfo,
 } from './bridgeTypes.js';
 
 /** Standard MCP tool response shape */
@@ -422,15 +423,26 @@ function countControls(controls: BridgeFormControl[]): number {
 
 export async function tryBridgeReferences(
   bridge: BridgeClient | undefined,
-  targetName: string,
+  target: string | string[],
   limit = 50,
+  displayName?: string,
 ): Promise<ToolResult | null> {
   if (!bridge?.isReady || !bridge.xrefAvailable) return null;
+  // Accept several candidate paths (e.g. one per container type when an owner
+  // name collides across Tables/Classes) — query each and merge. Each source
+  // reference targets a distinct path, so there are no cross-candidate dupes.
+  const targets = Array.isArray(target) ? target : [target];
+  const label = displayName ?? targets[0];
   try {
-    const refs = await bridge.findReferences(targetName);
-    if (!refs || refs.count === 0) return null;
+    const merged: BridgeReferenceInfo[] = [];
+    for (const t of targets) {
+      const r = await bridge.findReferences(t);
+      if (r?.references?.length) merged.push(...r.references);
+    }
+    if (merged.length === 0) return null;
+    const refs = { count: merged.length, references: merged };
 
-    let out = `# References to \`${targetName}\`\n\n`;
+    let out = `# References to \`${label}\`\n\n`;
     out += `**Total:** ${refs.count} reference(s) found\n`;
     out += `_Source: C# bridge (DYNAMICSXREFDB)_\n\n`;
 
@@ -486,7 +498,7 @@ export async function tryBridgeReferences(
 
     return { content: [{ type: 'text', text: out }] };
   } catch (e) {
-    console.error(`[BridgeAdapter] findReferences(${targetName}) failed: ${e}`);
+    console.error(`[BridgeAdapter] findReferences(${label}) failed: ${e}`);
     return null;
   }
 }

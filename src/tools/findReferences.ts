@@ -7,18 +7,67 @@
 import type { CallToolRequest } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import type { XppServerContext } from '../types/context.js';
-import { buildObjectTypeMismatchMessage } from '../utils/metadataResolver.js';
+import { buildObjectTypeMismatchMessage, detectObjectTypeInDb } from '../utils/metadataResolver.js';
 import { tryBridgeReferences } from '../bridge/bridgeAdapter.js';
 
 const FindReferencesArgsSchema = z.object({
-  targetName: z.string().describe('Name of the target (class name, method name, field name, etc.)'),
+  targetName: z.string().describe('Name of the target. For a precise, type-scoped method where-used, qualify it as "Owner.method" (e.g. "SalesTable.initFromSalesQuotationTable") or pass an AOT path ("/Tables/SalesTable/Methods/initFromSalesQuotationTable"). A bare method name matches that name on every type.'),
   targetType: z.enum(['method', 'class', 'table', 'field', 'enum', 'all']).optional().describe('Type of the target to search for'),
+  ownerName: z.string().optional().describe('Declaring table/class/form that owns the method, when targetName is just the bare method name. Used to scope the where-used to a single type (matches Visual Studio xref).'),
   scope: z.enum(['all', 'workspace', 'standard', 'custom']).optional().default('all').describe('Search scope'),
   limit: z.number().optional().default(50).describe('Maximum results to return'),
   // Default OFF: code-context snippets roughly quadruple the token cost of this tool.
   // Agents typically only need file:line:type — turn context on explicitly when you need snippets.
   includeContext: z.boolean().optional().default(false).describe('Include code context around reference (opt-in to reduce token usage)'),
 });
+
+/**
+ * Map a symbol-index `type` value to its DYNAMICSXREFDB container segment.
+ * Only types that can own methods are listed — these are the containers the
+ * xref path "/<Container>/<Owner>/Methods/<method>" is built from.
+ */
+const TYPE_TO_XREF_CONTAINER: Record<string, string> = {
+  table: 'Tables',
+  class: 'Classes',
+  form: 'Forms',
+  query: 'Queries',
+  view: 'Views',
+  map: 'Maps',
+  enum: 'Enums',
+  'data-entity': 'DataEntityViews',
+};
+
+/**
+ * Resolve which xref containers an owner name exists as (Tables/Classes/…).
+ * Usually one; returns several only when a name collides across object types.
+ */
+function resolveXrefContainers(db: any, ownerName: string): string[] {
+  const types = detectObjectTypeInDb(db, ownerName);
+  const containers = new Set<string>();
+  for (const { type } of types) {
+    const container = TYPE_TO_XREF_CONTAINER[type];
+    if (container) containers.add(container);
+  }
+  return [...containers];
+}
+
+/**
+ * Authoritative "no references" result for a method-scoped lookup when the xref
+ * bridge is available and returned nothing. We deliberately do NOT fall back to
+ * the name-only FTS scan here — that scan pools callers of every same-named
+ * method across all types, which is exactly the wrong answer for where-used.
+ */
+function buildScopedEmptyResult(displayName: string, bridgeTargets: string[]): { content: Array<{ type: 'text'; text: string }> } {
+  let out = `# References to \`${displayName}\`\n\n`;
+  out += `**Total References Found:** 0\n`;
+  out += `_Source: C# bridge (DYNAMICSXREFDB) — scoped to the declaring type_\n\n`;
+  out += `No callers found for this specific method.\n\n`;
+  out += `Resolved xref path(s):\n`;
+  for (const t of bridgeTargets) out += `- \`${t}\`\n`;
+  out += `\n**If you expected results:** verify the owner type and method name, `;
+  out += `or pass an explicit AOT path as \`targetName\` (e.g. \`/Classes/MyClass/Methods/myMethod\`).\n`;
+  return { content: [{ type: 'text', text: out }] };
+}
 
 interface Reference {
   file: string;
@@ -33,55 +82,98 @@ export async function findReferencesTool(request: CallToolRequest, context: XppS
   try {
     const args = FindReferencesArgsSchema.parse(request.params.arguments);
     const { symbolIndex } = context;
-    const { targetName, targetType, scope, limit, includeContext } = args;
+    const { targetName, targetType, scope, limit, includeContext, ownerName } = args;
 
-    // Try C# bridge first (DYNAMICSXREFDB — live cross-references)
-    const bridgeResult = await tryBridgeReferences(context.bridge, targetName, limit);
-    if (bridgeResult) return bridgeResult;
-
-    // --- Parse dotted notation (e.g. "SalesLineCopy.copy()" or "SalesLineCopy.copy") ---
-    // Extract parent object name so we can cross-check its actual type in the DB
-    let parentObjectName: string | null = null;
+    // --- Parse the target shape ----------------------------------------------
+    // Accept three forms:
+    //   1. AOT path        "/Tables/SalesTable/Methods/initFromSalesQuotationTable"
+    //   2. Owner-qualified "SalesTable.initFromSalesQuotationTable" (or ownerName + bare method)
+    //   3. Bare name       "initFromSalesQuotationTable" / "CustTable"
     const cleanTargetName = targetName.replace(/\(.*$/, '').trim(); // strip trailing parens
-    if (cleanTargetName.includes('.')) {
-      const parts = cleanTargetName.split('.');
-      parentObjectName = parts[0].trim() || null;
-    } else if (targetType === 'class' || targetType === 'method') {
-      // Also check the bare name itself when caller explicitly expects a class
-      parentObjectName = cleanTargetName;
+    const isAotPath = cleanTargetName.startsWith('/');
+
+    let owner: string | null = ownerName?.trim() || null;
+    let memberName = cleanTargetName;
+    if (!isAotPath && cleanTargetName.includes('.')) {
+      const dot = cleanTargetName.lastIndexOf('.');
+      owner = owner ?? (cleanTargetName.slice(0, dot).trim() || null);
+      memberName = cleanTargetName.slice(dot + 1).trim();
     }
 
-    // Build search patterns
+    // parentObjectName powers the cross-type ("you used a form name as a class") hint
+    const parentObjectName: string | null =
+      owner ?? ((targetType === 'class' || targetType === 'method') ? memberName : null);
+
+    const wantsMethod = !targetType || targetType === 'method' || targetType === 'all';
+
+    // --- Build the bridge target(s) ------------------------------------------
+    // The DYNAMICSXREFDB bridge scopes a method to its declaring type ONLY when
+    // given a method-qualified path. A bare method name matches no object there
+    // and silently returns 0 — so when an owner is known we resolve its container
+    // type and build "/<Container>/<Owner>/Methods/<method>" before querying.
+    let bridgeTargets: string[] = [cleanTargetName];
+    let methodScoped = false;
+    if (isAotPath) {
+      methodScoped = cleanTargetName.includes('/Methods/');
+    } else if (owner && wantsMethod) {
+      const containers = resolveXrefContainers(symbolIndex.getReadDb(), owner);
+      bridgeTargets = containers.length > 0
+        ? containers.map(c => `/${c}/${owner}/Methods/${memberName}`)
+        // Owner not indexed — hand the qualified name to the bridge, which (when
+        // built with method-variant expansion) resolves it across container types.
+        : [`${owner}.${memberName}`];
+      methodScoped = true;
+    }
+
+    // Try C# bridge first (DYNAMICSXREFDB — live cross-references)
+    const bridgeResult = await tryBridgeReferences(context.bridge, bridgeTargets, limit, targetName);
+    if (bridgeResult) return bridgeResult;
+
+    // For a method-scoped lookup the xref bridge is authoritative: if it is
+    // available and returned nothing, report the empty scoped result rather than
+    // dropping to the name-only FTS scan below (which pools callers of every
+    // same-named method across all types — the original "25 references" bug).
+    const bridgeXrefUp = !!(context.bridge?.isReady && context.bridge?.xrefAvailable);
+    if (methodScoped && bridgeXrefUp) {
+      return buildScopedEmptyResult(targetName, bridgeTargets);
+    }
+
+    // Build search patterns (FTS fallback — only reached when the xref bridge is
+    // unavailable). This is a name-based heuristic and cannot scope a method to
+    // its declaring type; match on the bare member name.
+    const ftsName = isAotPath
+      ? (cleanTargetName.split('/').pop() || cleanTargetName)
+      : memberName;
     const references: Reference[] = [];
     let totalReferences = 0;
 
     // 1. Search for method calls
     if (!targetType || targetType === 'method' || targetType === 'all') {
-      const methodRefs = findMethodReferences(symbolIndex, targetName, scope, limit);
+      const methodRefs = findMethodReferences(symbolIndex, ftsName, scope, limit);
       references.push(...methodRefs);
     }
 
     // 2. Search for class references (extends, implements, instantiations)
     if (!targetType || targetType === 'class' || targetType === 'all') {
-      const classRefs = findClassReferences(symbolIndex, targetName, scope, limit);
+      const classRefs = findClassReferences(symbolIndex, ftsName, scope, limit);
       references.push(...classRefs);
     }
 
     // 3. Search for table references (select statements, table buffers)
     if (!targetType || targetType === 'table' || targetType === 'all') {
-      const tableRefs = findTableReferences(symbolIndex, targetName, scope, limit);
+      const tableRefs = findTableReferences(symbolIndex, ftsName, scope, limit);
       references.push(...tableRefs);
     }
 
     // 4. Search for field references
     if (!targetType || targetType === 'field' || targetType === 'all') {
-      const fieldRefs = findFieldReferences(symbolIndex, targetName, scope, limit);
+      const fieldRefs = findFieldReferences(symbolIndex, ftsName, scope, limit);
       references.push(...fieldRefs);
     }
 
     // 5. Search for enum references
     if (!targetType || targetType === 'enum' || targetType === 'all') {
-      const enumRefs = findEnumReferences(symbolIndex, targetName, scope, limit);
+      const enumRefs = findEnumReferences(symbolIndex, ftsName, scope, limit);
       references.push(...enumRefs);
     }
 
@@ -99,7 +191,12 @@ export async function findReferencesTool(request: CallToolRequest, context: XppS
     if (targetType) {
       output += `**Target Type:** ${targetType}\n`;
     }
-    output += `**Scope:** ${scope}\n\n`;
+    output += `**Scope:** ${scope}\n`;
+    output += `_Source: name-based index scan (xref bridge unavailable) — heuristic; not scoped to a declaring type._\n`;
+    if (wantsMethod && !owner && !isAotPath) {
+      output += `> ℹ️ This counts every method named \`${ftsName}\` regardless of owner. For a type-scoped where-used, pass \`ownerName\` or qualify as \`Owner.${ftsName}\`.\n`;
+    }
+    output += `\n`;
 
     // Cross-type check: detect when the caller used a form/table/view name as if it were a class
     const typeMismatchSection = parentObjectName

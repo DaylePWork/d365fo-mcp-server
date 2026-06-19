@@ -84,6 +84,19 @@ async function getAllowedRoots(extraRoots?: (string | null | undefined)[]): Prom
   // Fallback only if nothing was configured — prevents writing to unrelated drives
   // when config is silently missing (better to error out than guess).
   if (roots.size === 0) add(fallbackPackagePath());
+
+  // Broaden any *package-level* root up to its PackagesLocalDirectory base. An
+  // explicit context.packagePath may point at a single package (e.g.
+  // …/PackagesLocalDirectory/ApplicationSuite), but a custom object commonly
+  // lives in a sibling package under the same PLD. Without this, the file is
+  // found on disk yet rejected by containment because it sits beside — not
+  // under — the configured root. The PLD base IS the legitimate D365FO write
+  // boundary; the canonical-AOT-shape and standard-model guards downstream
+  // still block writes into Microsoft-owned models.
+  for (const r of [...roots]) {
+    const m = r.match(/^(.*\/PackagesLocalDirectory)(?:\/|$)/i);
+    if (m && m[1] !== r) roots.add(m[1]);
+  }
   return [...roots];
 }
 
@@ -118,8 +131,15 @@ export async function assertWritePathAllowed(
       ok: false,
       reason:
         `Refusing to write outside configured D365FO package roots.\n` +
-        `  path:    ${filePath}\n` +
-        `  allowed: ${roots.join(' | ') || '(none configured)'}`,
+        // Show the *normalized* path (forward slashes, the form actually compared)
+        // so the mismatch is apples-to-apples — the raw input slashes are irrelevant,
+        // comparison is case-insensitive with separators normalized.
+        `  resolved path: ${canonical}\n` +
+        `  allowed roots:\n` +
+        (roots.length ? roots.map(r => `    - ${r}`).join('\n') : '    (none configured)') + '\n' +
+        `  → The file resolved under none of these roots. This usually means its model is not on an\n` +
+        `    allowed root: set context.customPackagesPath / D365FO_CUSTOM_PACKAGES_PATH (and restart),\n` +
+        `    or pass packagePath="<root that contains the model>". It is NOT a path-separator issue.`,
     };
   }
 
@@ -198,8 +218,9 @@ export async function assertReadRootAllowed(dirPath: string): Promise<PathContai
       ok: false,
       reason:
         `Refusing to scan outside configured D365FO package roots.\n` +
-        `  path:    ${dirPath}\n` +
-        `  allowed: ${roots.join(' | ') || '(none configured)'}`,
+        `  resolved path: ${canonical}\n` +
+        `  allowed roots:\n` +
+        (roots.length ? roots.map(r => `    - ${r}`).join('\n') : '    (none configured)'),
     };
   }
 

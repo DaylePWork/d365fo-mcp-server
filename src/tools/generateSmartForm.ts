@@ -386,6 +386,19 @@ export async function handleGenerateSmartForm(
     if (cloneResult.droppedFields.length > 0) {
       noteLines.push(`   ⚠️ Fields dropped (missing on target table): ${cloneResult.droppedFields.map(d => `${d.dataSource}.${d.field}`).join(', ')}`);
     }
+    // Poor-match guard: if a re-bound datasource lost most of its fields, the
+    // reference form's table is structurally unrelated to the target — the clone
+    // is likely unusable. Flag it loudly so the caller picks a closer reference
+    // or scaffolds from a template instead of silently shipping a gutted form.
+    const poorMatches = cloneResult.fieldStats.filter(s => s.total >= 3 && s.dropped / s.total >= 0.6);
+    if (poorMatches.length > 0) {
+      noteLines.push(
+        `   🛑 POOR CLONE MATCH — ${poorMatches.map(s => `${s.dataSource}: ${s.dropped}/${s.total} fields dropped`).join('; ')}. ` +
+        `The reference form "${cloneResult.sourceFormName}" is bound to a table unrelated to your target, so most controls were stripped. ` +
+        `Pick a reference form over a structurally similar table (object_patterns(domain="form", action="analyze", recommend={...}) suggests one), ` +
+        `or scaffold from a template: generate_object(mode="scaffold", objectType="form", formPattern="...", dataSource="...").`,
+      );
+    }
     if (cloneResult.removedControls.length > 0) {
       noteLines.push(`   ⚠️ Controls removed (bound to dropped fields): ${cloneResult.removedControls.join(', ')}`);
     }

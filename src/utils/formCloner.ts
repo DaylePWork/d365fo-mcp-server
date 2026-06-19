@@ -40,6 +40,12 @@ export interface CloneFormResult {
   removedIndexes: Array<{ dataSource: string; index: string }>;
   /** QuickFilter defaultColumnName references repointed/cleared after column removal. */
   repointedQuickFilters: Array<{ from: string; to: string }>;
+  /**
+   * Per-datasource field-retention stats for re-bound datasources whose target
+   * table fields were known. Lets callers detect a poor structural match (the
+   * reference form's table is unrelated to the target → most fields dropped).
+   */
+  fieldStats: Array<{ dataSource: string; total: number; dropped: number }>;
 }
 
 interface ElementBlock {
@@ -195,6 +201,7 @@ export function cloneFormXml(sourceXml: string, opt: CloneFormOptions): CloneFor
     resetClassDeclaration: false,
     removedIndexes: [],
     repointedQuickFilters: [],
+    fieldStats: [],
   };
 
   // ── 1. Form rename ─────────────────────────────────────────────────────────
@@ -336,13 +343,19 @@ export function cloneFormXml(sourceXml: string, opt: CloneFormOptions): CloneFor
       if (!fields) continue; // unknown table — keep everything
       const fieldSet = new Set(fields.map((f) => f.toLowerCase()));
 
+      let total = 0;
+      let dropped = 0;
       for (const fieldBlock of findElementBlocks(xml, 'AxFormDataSourceField', ds.start, ds.end)) {
         const dataField = firstElementValue(fieldBlock.content, 'DataField');
-        if (dataField && !fieldSet.has(dataField.toLowerCase())) {
+        if (!dataField) continue;
+        total++;
+        if (!fieldSet.has(dataField.toLowerCase())) {
+          dropped++;
           result.droppedFields.push({ dataSource: dsName, field: dataField });
           removals.push(fieldBlock);
         }
       }
+      if (total > 0) result.fieldStats.push({ dataSource: dsName, total, dropped });
     }
     xml = removeRanges(xml, removals);
 

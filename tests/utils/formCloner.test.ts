@@ -81,6 +81,8 @@ describe('cloneFormXml', () => {
     expect(result.xml).not.toContain('PaymTermId');
     // Surviving fields stay bound
     expect(result.xml).toContain('<DataField>Name</DataField>');
+    // Field-retention stats let callers detect a poor structural match
+    expect(result.fieldStats).toEqual([{ dataSource: 'MyRentalGroup', total: 3, dropped: 1 }]);
   });
 
   it('keeps all fields when the target table is unknown to the index', () => {

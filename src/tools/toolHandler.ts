@@ -96,6 +96,10 @@ const TOOL_CAP_SIZES: Record<string, number | 'uncapped'> = {
   get_object_info:                  'uncapped',
   // Method source must never be truncated — partial code is useless
   get_method:                       'uncapped',
+  // Build output must never be truncated — compiler errors appear at the end of
+  // long phase-timing logs and would be lost. The structured diagnostics section
+  // already caps at 25 items; readFullLog now focuses on diagnostic lines only.
+  build_d365fo_project:             'uncapped',
   // New tools with longer output
   security_info:                    8000,
   // extensibility merges the former table-extension/extension-point/strategy/

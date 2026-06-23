@@ -246,13 +246,55 @@ async function readWholeLog(logFile: string): Promise<string> {
   }
 }
 
-// Return up to maxLines of a log file, showing head+tail when truncated.
-// Used when reporting a failed build so the full diagnostic context is visible.
+// Return a log excerpt for a failed build that always includes diagnostic lines.
+// When the log is large (e.g. long phase timing tables before the error section),
+// the naive head+tail approach can miss error lines. Instead we:
+//   1. Find every line matching a compiler diagnostic prefix.
+//   2. Include a context window around each such line.
+//   3. Always include the last TAIL_LINES of the log (build summary).
+//   4. Fall back to head+tail only when no diagnostics are found.
 async function readFullLog(logFile: string, maxLines = 300): Promise<string> {
+  const CONTEXT = 3;   // lines before/after each diagnostic
+  const TAIL_LINES = 30; // always-included trailing lines
+
   try {
     const content = await readFile(logFile, 'utf-8');
     const all = content.split(/\r?\n/);
     if (all.length <= maxLines) return content.trim();
+
+    const DIAG_RE = /^(Compile Fatal Error|Compile Error|Compile Warning|Generation Warning|Best Practice Warning):/;
+    const diagIndices: number[] = [];
+    for (let i = 0; i < all.length; i++) {
+      if (DIAG_RE.test(all[i].trim())) diagIndices.push(i);
+    }
+
+    if (diagIndices.length > 0) {
+      const included = new Set<number>();
+      for (const idx of diagIndices) {
+        for (let i = Math.max(0, idx - CONTEXT); i <= Math.min(all.length - 1, idx + CONTEXT); i++) {
+          included.add(i);
+        }
+      }
+      for (let i = Math.max(0, all.length - TAIL_LINES); i < all.length; i++) {
+        included.add(i);
+      }
+
+      const sorted = [...included].sort((a, b) => a - b);
+      const out: string[] = [
+        `[Phase table omitted — ${diagIndices.length} diagnostic line(s) with context shown below]\n`,
+      ];
+      let prev = -1;
+      for (const i of sorted) {
+        if (prev !== -1 && i > prev + 1) {
+          out.push(`... (${i - prev - 1} lines omitted) ...`);
+        }
+        out.push(all[i]);
+        prev = i;
+      }
+      return out.join('\n').trim();
+    }
+
+    // No diagnostic lines found — fall back to head+tail.
     const half = Math.floor(maxLines / 2);
     return (
       `[First ${half} lines]\n` +

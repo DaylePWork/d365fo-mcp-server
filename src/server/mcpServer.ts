@@ -592,7 +592,7 @@ Model from .mcp.json; prefix auto-applied from EXTENSION_PREFIX. Classes: member
                   '• table-extension: fields[{name,edt?,enumType?,label?,mandatory?,fieldType?}] — enum fields need fieldType:"AxTableFieldEnum" + enumType\n' +
                   '• edt: label, extends, edtType, stringSize\n' +
                   '• form: caption, formTemplate, dataSource\n' +
-                  '• security-privilege: label, targetObject, objectType (MenuItemDisplay|Action|Output), accessLevel (view|maintain)\n' +
+                  '• security-privilege: label, targetObject, objectType (MenuItemDisplay|Action|Output), accessLevel (view|maintain), dataEntity (data entity name → emits DataEntityPermissions grant for OData access)\n' +
                   '• security-duty: label, privileges[] (privilege names — array or comma-separated)\n' +
                   '• security-role: label, duties[] (duty names), privileges[] (privilege names)\n' +
                   '• menu-item-*: label, object, objectType\n' +

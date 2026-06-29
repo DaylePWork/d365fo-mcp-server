@@ -17,6 +17,7 @@ import { extractModelFromProject, findProjectInSolution } from '../utils/project
 import { normalizeD365Xml } from '../utils/d365XmlNormalizer.js';
 import { validateFormPatternXml } from '../validation/formPatternValidator.js';
 import { resolvePattern } from '../knowledge/formPatterns/index.js';
+import { expandPatternToXml, canExpandPattern } from '../utils/formControlExpander.js';
 import { cloneFormXml } from '../utils/formCloner.js';
 import { methodStubsForPattern, injectMethodStubs } from '../knowledge/formPatterns/methodStubs.js';
 import { findBaseFormXml } from './modifyD365File.js';
@@ -697,7 +698,7 @@ export async function handleGenerateSmartForm(
     if (mismatch) noteLines.push(`   ${mismatch}`);
     cloneNotes = `\n${noteLines.join('\n')}`;
   } else {
-    xml = FormPatternTemplates.build(normalizedPattern, {
+    const templateOpts = {
       formName: finalName,
       dsName: primaryDs?.name,
       dsTable: primaryDs?.table,
@@ -708,28 +709,59 @@ export async function handleGenerateSmartForm(
       linesDsTable: linesTableResolved || undefined,
       linesFields,
       linesFieldTypes,
-    });
+    };
+
+    // Patterns FormPatternTemplates has a dedicated, hand-tuned builder for.
+    // Anything else previously degraded silently to SimpleList; we now expand it
+    // deterministically from the catalog instead (single source of truth).
+    const TEMPLATED_PATTERNS = new Set([
+      'SimpleList', 'SimpleListDetails', 'DetailsMaster', 'DetailsTransaction',
+      'Dialog', 'TableOfContents', 'Lookup', 'ListPage', 'Workspace',
+    ]);
+    const intendedSpec = formPattern ? resolvePattern(formPattern) : undefined;
+
+    let expanded: string | undefined;
+    if (intendedSpec && !TEMPLATED_PATTERNS.has(intendedSpec.xmlName) && canExpandPattern(intendedSpec)) {
+      // Deterministic catalog expansion. Self-test it: only adopt the result when
+      // it is structurally error-free — otherwise fall through to the proven
+      // template path so we can never regress.
+      const candidate = expandPatternToXml(intendedSpec, templateOpts);
+      const candidateReport = await validateFormPatternXml(candidate);
+      if (!candidateReport.violations.some(v => v.severity === 'error')) {
+        expanded = candidate;
+        cloneNotes += `\n   ✅ Generated deterministically from the form-pattern catalog (pattern "${intendedSpec.xmlName}", no clone needed).`;
+      } else {
+        console.warn(`[generateSmartForm] Expander output for "${intendedSpec.xmlName}" failed self-test — falling back to template.`);
+      }
+    }
+
+    if (expanded) {
+      xml = expanded;
+    } else {
+      xml = FormPatternTemplates.build(normalizedPattern, templateOpts);
+
+      // Warn when the requested pattern has no dedicated template and silently
+      // degraded to another base (or to SimpleList). The emitted <Pattern> reflects
+      // the template, not the request, and the self-test validates only the emitted
+      // pattern — so this mismatch would otherwise pass unnoticed.
+      const degradedPattern = xml.match(/<Pattern xmlns="">([^<]+)<\/Pattern>/)?.[1];
+      if (formPattern && degradedPattern) {
+        const intended = resolvePattern(formPattern);
+        if (intended && intended.xmlName.toLowerCase() !== degradedPattern.toLowerCase()) {
+          const ref = intended.referenceForms?.[0];
+          cloneNotes +=
+            `\n   ⚠️ No dedicated template for pattern "${intended.xmlName}" — generated a "${degradedPattern}" form instead.` +
+            (ref
+              ? ` For a true "${intended.xmlName}", clone a reference form: ` +
+                `generate_object(mode="scaffold", objectType="form", name="${name}", cloneFrom="${ref}", tableMapping={...}).`
+              : ` Clone a reference form for that pattern via cloneFrom=.`);
+        }
+      }
+    }
 
     // Align the Design-level PatternVersion with the version this environment uses
     // for the pattern; template defaults can lag and be rejected by BP.
     const designPattern = xml.match(/<Pattern xmlns="">([^<]+)<\/Pattern>/)?.[1];
-
-    // Warn when the requested pattern has no dedicated template and silently
-    // degraded to another base (or to SimpleList). The emitted <Pattern> reflects
-    // the template, not the request, and the self-test validates only the emitted
-    // pattern — so this mismatch would otherwise pass unnoticed.
-    if (formPattern && designPattern) {
-      const intended = resolvePattern(formPattern);
-      if (intended && intended.xmlName.toLowerCase() !== designPattern.toLowerCase()) {
-        const ref = intended.referenceForms?.[0];
-        cloneNotes +=
-          `\n   ⚠️ No dedicated template for pattern "${intended.xmlName}" — generated a "${designPattern}" form instead.` +
-          (ref
-            ? ` For a true "${intended.xmlName}", clone a reference form: ` +
-              `generate_object(mode="scaffold", objectType="form", name="${name}", cloneFrom="${ref}", tableMapping={...}).`
-            : ` Clone a reference form for that pattern via cloneFrom=.`);
-      }
-    }
 
     if (designPattern) {
       const envVersion = resolveEnvPatternVersion(symbolIndex.getReadDb(), designPattern);

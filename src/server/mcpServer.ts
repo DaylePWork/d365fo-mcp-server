@@ -362,14 +362,17 @@ export function createXppMcpServer(context: XppServerContext): Server {
             'Generate X++/AOT code. Choose a `mode`:\n' +
             '• pattern → a named X++ skeleton from the pattern enum (text only, no write). Call analyze_code(mode="patterns") first, then generate_object(mode="pattern"), then d365fo_file(action="create").\n' +
             '• scaffold → pattern-aware whole-object generation (table/form/report) with intelligent field/index/relation or form-pattern suggestions; set objectType.\n' +
+            '• find-methods → find()/findRecId()/exists() for a table (text), keyed on its primary/unique index.\n' +
+            '• relation-xpp → a table\'s relation(s) → X++ select + QueryBuildRange (text).\n' +
+            '• fields → field names → AxTableField XML with auto-resolved EDTs + optional field group (text).\n' +
             'For a single existing object definition\'s XML use d365fo_file(action="generate") instead.',
           inputSchema: {
             type: 'object',
             properties: {
               mode: {
                 type: 'string',
-                enum: ['pattern', 'scaffold'],
-                description: 'pattern = named X++ skeleton (text); scaffold = whole table/form/report (set objectType).',
+                enum: ['pattern', 'scaffold', 'find-methods', 'relation-xpp', 'fields'],
+                description: 'pattern = X++ skeleton; scaffold = whole table/form/report (set objectType); find-methods/relation-xpp/fields = X++/XML helpers for an existing table.',
               },
               // ── shared identity / placement ────────────────────────────────
               name: { type: 'string', description: 'REQUIRED. [pattern] name for the generated element (extensions: base element name; form-datasource/control-extension: the FORM name). [scaffold] object name (report: BASE name WITHOUT model prefix).' },
@@ -448,14 +451,17 @@ export function createXppMcpServer(context: XppServerContext): Server {
               generateControls: { type: 'boolean', description: '[scaffold:form] Auto-generate grid controls for datasource.' },
               fields: {
                 type: 'array',
-                description: '[scaffold:report] Structured TmpTable field specs. Takes priority over fieldsHint.',
+                description: '[scaffold:report | fields] Structured field specs. Takes priority over fieldsHint. For mode="fields": name + optional edt/enumType/type/label/mandatory (EDT auto-resolved when omitted).',
                 items: {
                   type: 'object',
                   properties: {
                     name: { type: 'string' },
-                    edt: { type: 'string' },
-                    dataType: { type: 'string', description: '.NET type, e.g. "System.Double"' },
+                    edt: { type: 'string', description: 'Explicit EDT — for mode="fields", omit to auto-resolve from the field name.' },
+                    enumType: { type: 'string', description: '[fields] Enum name for an enum-backed field (AxTableFieldEnum).' },
+                    type: { type: 'string', description: '[fields] Explicit base type (String/Integer/Int64/Real/Date/UtcDateTime/Guid).' },
+                    dataType: { type: 'string', description: '[scaffold:report] .NET type, e.g. "System.Double"' },
                     label: { type: 'string' },
+                    mandatory: { type: 'boolean', description: '[fields] Mark the field Mandatory=Yes.' },
                   },
                   required: ['name'],
                 },
@@ -478,6 +484,19 @@ export function createXppMcpServer(context: XppServerContext): Server {
               designStyle: { type: 'string', description: '[scaffold:report] RDL design pattern: "SimpleList" (default) or "GroupedWithTotals".' },
               copyFrom: { type: 'string', description: '[scaffold:table|form|report] Copy structure from existing object (table fields/indexes/relations; form datasources — prefer cloneFrom; report field structure).' },
               fieldsHint: { type: 'string', description: '[scaffold:table|report] Comma-separated field names (e.g. "RecId, Name, Amount"). EDTs auto-suggested from the indexed metadata. ⚠️ Custom EDTs/enums created in the SAME SESSION are not yet indexed — call update_symbol_index first, then scaffold, so the new EDTs are found and used. Without this step those fields will default to String255.' },
+              // ── mode=find-methods ──────────────────────────────────────────
+              keyFields: {
+                type: 'array',
+                items: { type: 'string' },
+                description: '[find-methods] Explicit key field names (order matters). Overrides index detection; required when the bridge is unavailable.',
+              },
+              includeExists: { type: 'boolean', description: '[find-methods] Emit exists() (default true).' },
+              includeFindRecId: { type: 'boolean', description: '[find-methods] Emit findRecId() (default true).' },
+              // ── mode=relation-xpp ──────────────────────────────────────────
+              relationName: { type: 'string', description: '[relation-xpp] One relation to convert. Omit = all relations.' },
+              style: { type: 'string', enum: ['select', 'query', 'both'], description: '[relation-xpp] select | query | both (default).' },
+              // ── mode=fields (shares the `fields` array above) ───────────────
+              fieldGroup: { type: 'string', description: '[fields] Field-group name — emits an AxTableFieldGroup listing the new fields.' },
             },
             required: ['mode'],
           },

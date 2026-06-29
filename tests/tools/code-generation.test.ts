@@ -544,10 +544,11 @@ describe('generate_smart_form', () => {
     expect(result?.content[0].text).toContain('MyCustomTable');
   });
 
-  it('warns when the requested pattern has no template and degrades to another', async () => {
-    // "Task" has a catalog spec (TaskSingle) but no builder template, so it
-    // silently falls back to SimpleList. The output must say so and point at a
-    // reference form to clone instead.
+  it('expands a template-less pattern deterministically from the catalog', async () => {
+    // "Task" (TaskSingle) has a catalog spec but no hand-written builder
+    // template. It used to silently degrade to SimpleList; now the deterministic
+    // expander emits the correct TaskSingle structure (single source of truth
+    // with the validator) instead of the wrong pattern.
     const result = await handleGenerateSmartForm(
       {
         name: 'MyTaskForm',
@@ -557,8 +558,13 @@ describe('generate_smart_form', () => {
       },
       ctx.symbolIndex,
     );
-    expect(result?.content[0].text).toContain('No dedicated template');
-    expect(result?.content[0].text).toContain('cloneFrom');
+    const text = result?.content[0].text as string;
+    // Correct pattern emitted (not degraded to SimpleList) …
+    expect(text).toContain('<Pattern xmlns="">TaskSingle</Pattern>');
+    expect(text).not.toContain('<Pattern xmlns="">SimpleList</Pattern>');
+    // … and the deterministic-catalog note is shown, not the degrade warning.
+    expect(text).toContain('Generated deterministically from the form-pattern catalog');
+    expect(text).not.toContain('No dedicated template');
   });
 });
 

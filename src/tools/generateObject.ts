@@ -21,6 +21,7 @@ import { generateSmartTool } from './generateSmart.js';
 import { generateFindMethodsTool } from './generateFindMethods.js';
 import { generateRelationXppTool } from './generateRelationXpp.js';
 import { generateTableFieldsTool } from './generateTableFields.js';
+import { generateTableRelationTool } from './generateTableRelation.js';
 
 function err(text: string) {
   return { content: [{ type: 'text' as const, text }], isError: true };
@@ -41,8 +42,10 @@ export async function generateObjectTool(request: CallToolRequest, context: XppS
       return generateRelationXppTool(request, context);
     case 'fields':
       return generateTableFieldsTool(request, context);
+    case 'table-relation':
+      return generateTableRelationTool(request, context);
     default:
-      return err(`generate_object: unknown mode "${mode}". Use "pattern" (named X++ skeleton, text only), "scaffold" (whole table/form/report), "find-methods" (find/findRecId/exists for a table), "relation-xpp" (table relations → X++ select/query), or "fields" (field list → AxTableField XML with auto-EDT).`);
+      return err(`generate_object: unknown mode "${mode}". Use "pattern" (named X++ skeleton, text only), "scaffold" (whole table/form/report), "find-methods" (find/findRecId/exists for a table), "relation-xpp" (table relations → X++ select/query), "fields" (field list → AxTableField XML with auto-EDT), or "table-relation" (EDT-referencing fields → AxTableRelation XML).`);
   }
 }
 

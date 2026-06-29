@@ -50,13 +50,13 @@ function iTypeFor(controlType: string): string {
 }
 
 /** A node is concrete (emittable) when it names a single, specific control type. */
-function isConcrete(spec: NodeSpec): boolean {
+export function isConcrete(spec: NodeSpec): boolean {
   const t = spec.controlTypes[0];
   return spec.controlTypes.length >= 1 && t !== '*' && !!t;
 }
 
 /** Required containers only — optional/zeroOrMore slots are left out of the skeleton. */
-function isRequired(spec: NodeSpec): boolean {
+export function isRequired(spec: NodeSpec): boolean {
   return spec.occurrence === 'required' || spec.occurrence === 'oneOrMore';
 }
 
@@ -101,6 +101,16 @@ function emitProperties(props: Record<string, string> | undefined, indent: strin
   return Object.entries(props)
     .map(([k, v]) => `${indent}<${k}>${v}</${k}>`)
     .join('\n');
+}
+
+/**
+ * Public wrapper around {@link emitNode}: render a single pattern NodeSpec (and
+ * its required descendants) as AxForm control XML at the given indent depth.
+ * Used by the form-repair path to materialise a missing required control.
+ * Returns '' for nodes that cannot be concretely emitted.
+ */
+export function buildControlXml(spec: NodeSpec, opt: ExpandFormOptions, depth: number): string {
+  return emitNode(spec, opt, depth);
 }
 
 /**

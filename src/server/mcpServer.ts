@@ -364,15 +364,16 @@ export function createXppMcpServer(context: XppServerContext): Server {
             '• scaffold → pattern-aware whole-object generation (table/form/report) with intelligent field/index/relation or form-pattern suggestions; set objectType.\n' +
             '• find-methods → find()/findRecId()/exists() for a table (text), keyed on its primary/unique index.\n' +
             '• relation-xpp → a table\'s relation(s) → X++ select + QueryBuildRange (text).\n' +
-            '• fields → field names → AxTableField XML with auto-resolved EDTs + optional field group (text).\n' +
+            '• fields → field names → AxTableField XML with auto-resolved EDTs + optional field group.\n' +
+            '• table-relation → EDT-referencing fields → AxTableRelation XML (inverse of relation-xpp).\n' +
             'For a single existing object definition\'s XML use d365fo_file(action="generate") instead.',
           inputSchema: {
             type: 'object',
             properties: {
               mode: {
                 type: 'string',
-                enum: ['pattern', 'scaffold', 'find-methods', 'relation-xpp', 'fields'],
-                description: 'pattern = X++ skeleton; scaffold = whole table/form/report (set objectType); find-methods/relation-xpp/fields = X++/XML helpers for an existing table.',
+                enum: ['pattern', 'scaffold', 'find-methods', 'relation-xpp', 'fields', 'table-relation'],
+                description: 'pattern = X++ skeleton; scaffold = whole table/form/report (set objectType); find-methods/relation-xpp/fields/table-relation = X++/XML helpers for an existing table.',
               },
               // ── shared identity / placement ────────────────────────────────
               name: { type: 'string', description: 'REQUIRED. [pattern] name for the generated element (extensions: base element name; form-datasource/control-extension: the FORM name). [scaffold] object name (report: BASE name WITHOUT model prefix).' },
@@ -488,7 +489,7 @@ export function createXppMcpServer(context: XppServerContext): Server {
               keyFields: {
                 type: 'array',
                 items: { type: 'string' },
-                description: '[find-methods] Explicit key field names (order matters). Overrides index detection; required when the bridge is unavailable.',
+                description: '[find-methods] Explicit key field names (order matters); overrides index detection.',
               },
               includeExists: { type: 'boolean', description: '[find-methods] Emit exists() (default true).' },
               includeFindRecId: { type: 'boolean', description: '[find-methods] Emit findRecId() (default true).' },
@@ -1264,8 +1265,8 @@ Model from .mcp.json; prefix auto-applied from EXTENSION_PREFIX. Classes: member
               // ── domain=form ────────────────────────────────────────────────
               action: {
                 type: 'string',
-                enum: ['analyze', 'validate', 'spec'],
-                description: '[form] Which form-pattern operation to run.',
+                enum: ['analyze', 'validate', 'spec', 'repair'],
+                description: '[form] Which form-pattern operation to run. repair = auto-fill missing required controls.',
               },
               // ── domain=form, action=analyze ────────────────────────────────
               formPattern: {

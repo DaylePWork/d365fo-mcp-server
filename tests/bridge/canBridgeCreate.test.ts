@@ -14,6 +14,14 @@ describe('canBridgeCreate', () => {
     expect(canBridgeCreate('security-role')).toBe(false);
   });
 
+  it('excludes security-duty-extension/security-role-extension (same TOOL_DEFECT class)', () => {
+    // These are always written via the local XML generator (see
+    // XmlTemplateGenerator.generateAxSecurityDutyExtensionXml/RoleExtensionXml in
+    // createD365File.ts) — never routed through the bridge's flat properties map.
+    expect(canBridgeCreate('security-duty-extension')).toBe(false);
+    expect(canBridgeCreate('security-role-extension')).toBe(false);
+  });
+
   it('excludes query/view (TOOL_DEFECT)', () => {
     // Regression: the bridge accepted dataSource/query as scalar properties
     // and reported success, but produced an empty query/view that can select

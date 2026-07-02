@@ -42,7 +42,7 @@ export const prepareChangeArgsSchema = z.object({
   ),
   objectType: z.enum([
     'class', 'table', 'form', 'query', 'view', 'enum', 'edt',
-    'data-entity', 'map', 'report',
+    'data-entity', 'map', 'report', 'security-duty', 'security-role',
   ]).optional().describe(
     'D365FO object type. Auto-detected from the symbol index when omitted.',
   ),
@@ -184,6 +184,12 @@ function fetchStrategy(objectType: string | undefined): string {
     strategies.push('• Form datasource extension [ExtensionOf(formDataSourceStr(...))] — CoC on DS methods');
   } else if (objectType === 'map') {
     strategies.push('• Map extension class [ExtensionOf(mapStr(...))] — add/wrap map methods');
+  } else if (objectType === 'security-duty') {
+    strategies.push('• security-duty-extension (AxSecurityDutyExtension) — add privileges to this EXISTING duty without overlaying it');
+    strategies.push('• New standalone security-duty — only if this duty is not a fit for the new privilege at all');
+  } else if (objectType === 'security-role') {
+    strategies.push('• security-role-extension (AxSecurityRoleExtension) — add duties/privileges to this EXISTING role without overlaying it');
+    strategies.push('• New standalone security-role — only if this role is not a fit for the new duty at all');
   } else {
     strategies.push('• Extension class via [ExtensionOf] — check the object type for supported extension mechanisms');
   }

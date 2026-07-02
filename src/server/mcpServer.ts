@@ -550,7 +550,7 @@ export function createXppMcpServer(context: XppServerContext): Server {
         {
           name: 'd365fo_file',
           description: `Create, modify, or generate a D365FO AOT object. Choose an \`action\`:
-• create → write a NEW object file (.xml) into PackagesLocalDirectory (UTF-8 BOM, auto-added to .rnrproj). THIS IS THE WRITE STEP — the task is incomplete until it returns isError=false. Never treat a ⚠️/❌ response as success. Extensions: objectName="BaseObject.PrefixExtension". (Windows)
+• create → write a NEW object file (.xml) into PackagesLocalDirectory (UTF-8 BOM, auto-added to .rnrproj). THIS IS THE WRITE STEP — incomplete until isError=false; treat ⚠️/❌ as failure. Extensions: objectName="BaseObject.PrefixExtension". (Windows)
 • modify → edit an EXISTING object via IMetadataProvider (methods, fields, indexes, relations, controls, enum values, properties). APPLIES IMMEDIATELY, no dry-run — describe the change and get user confirmation BEFORE calling. Revert with undo_last_modification. Requires \`operation\`. (Windows)
 • generate → produce the XML as TEXT only, no file written (Azure/Linux fallback when create reports "requires file system access"). Save it yourself with UTF-8 BOM. ALWAYS try action=create first.
 
@@ -572,6 +572,7 @@ Model from .mcp.json; prefix auto-applied from EXTENSION_PREFIX. Classes: member
                   'menu-item-action-extension', 'menu-item-output-extension', 'menu-extension',
                   'menu-item-display', 'menu-item-action', 'menu-item-output', 'menu',
                   'security-privilege', 'security-duty', 'security-role',
+                  'security-duty-extension', 'security-role-extension',
                   'business-event', 'tile', 'kpi', 'map',
                 ],
                 description:

@@ -152,6 +152,47 @@ export function cloneFromPatternMismatchWarning(
   );
 }
 
+/**
+ * Pre-clone table-mapping coverage check (pure — no DB/fs access).
+ *
+ * `getTableFields(table)` must return the field-name list for a table, or `null`
+ * when the table is unknown to the caller (e.g. not yet in the symbol index).
+ * Two independent failure classes, checked separately:
+ *   - unknownTargets: the MAPPED target table has no known fields at all — cloning
+ *     cannot verify overlap, and (per cloneFormXml's own "unknown table → keep
+ *     fields" fallback) would silently leave that datasource bound to the SOURCE
+ *     table's fields instead of failing. Always worth surfacing loudly.
+ *   - poorOverlap: both tables are known, but share too few fields (<30%) for the
+ *     clone to be structurally meaningful.
+ * Source tables with <3 known fields are skipped (too little signal either way).
+ */
+export function checkTableMappingCoverage(
+  tableMapping: Record<string, string>,
+  getTableFields: (table: string) => string[] | null,
+): { unknownTargets: string[]; poorOverlap: string[] } {
+  const unknownTargets: string[] = [];
+  const poorOverlap: string[] = [];
+  for (const [srcTable, tgtTable] of Object.entries(tableMapping)) {
+    if (!tgtTable || srcTable.toLowerCase() === tgtTable.toLowerCase()) continue;
+    const srcFields = getTableFields(srcTable);
+    const tgtFields = getTableFields(tgtTable);
+    if (!tgtFields || tgtFields.length === 0) {
+      unknownTargets.push(tgtTable);
+      continue;
+    }
+    if (!srcFields || srcFields.length < 3) continue;
+    const tgtFieldSet = new Set(tgtFields.map((f) => f.toLowerCase()));
+    const shared = srcFields.filter((f) => tgtFieldSet.has(f.toLowerCase()));
+    const ratio = shared.length / srcFields.length;
+    if (ratio < 0.3) {
+      poorOverlap.push(
+        `${srcTable} → ${tgtTable}: ${shared.length}/${srcFields.length} fields shared (${Math.round(ratio * 100)} %)`,
+      );
+    }
+  }
+  return { unknownTargets: [...new Set(unknownTargets)], poorOverlap };
+}
+
 export async function handleGenerateSmartForm(
   args: GenerateSmartFormArgs,
   symbolIndex: XppSymbolIndex
@@ -590,21 +631,37 @@ export async function handleGenerateSmartForm(
     // low, cloning will strip most controls and produce a useless form.
     // Fail-fast here rather than returning a gutted result.
     if (tableMapping && Object.keys(tableMapping).length > 0) {
-      const poorOverlap: string[] = [];
-      for (const [srcTable, tgtTable] of Object.entries(tableMapping as Record<string, string>)) {
-        if (!tgtTable || srcTable.toLowerCase() === tgtTable.toLowerCase()) continue;
-        const srcFields = fieldStmt.all(srcTable) as Array<{ name: string }>;
-        const tgtFields = fieldStmt.all(tgtTable) as Array<{ name: string }>;
-        // Unknown table in index → field list is unavailable; skip check for that pair.
-        if (srcFields.length < 3 || tgtFields.length === 0) continue;
-        const tgtFieldSet = new Set(tgtFields.map((f) => f.name.toLowerCase()));
-        const shared = srcFields.filter((f) => tgtFieldSet.has(f.name.toLowerCase()));
-        const ratio = shared.length / srcFields.length;
-        if (ratio < 0.3) {
-          poorOverlap.push(
-            `${srcTable} → ${tgtTable}: ${shared.length}/${srcFields.length} fields shared (${Math.round(ratio * 100)} %)`,
-          );
-        }
+      // Found live 2026-07-01 (usage-examples eval, scenario 2): cloneFrom="CustGroup"
+      // + tableMapping to a just-created table not yet in the symbol index silently
+      // produced a form with 0 datasources/controls, self-reported as success —
+      // getTableFields returning null/empty for an unknown table used to make
+      // cloneFormXml leave that datasource's fields untouched (still bound to the
+      // SOURCE table) instead of failing. checkTableMappingCoverage now catches this
+      // as `unknownTargets`, separate from the pre-existing `poorOverlap` check.
+      const { unknownTargets, poorOverlap } = checkTableMappingCoverage(
+        tableMapping as Record<string, string>,
+        (table: string) => {
+          const rows = fieldStmt.all(table) as Array<{ name: string }>;
+          return rows.length > 0 ? rows.map((r) => r.name) : null;
+        },
+      );
+      if (unknownTargets.length > 0) {
+        return {
+          content: [{
+            type: 'text',
+            text:
+              `❌ PRE-CLONE CHECK — target table${unknownTargets.length > 1 ? 's' : ''} not found in the symbol index: ` +
+              `${unknownTargets.join(', ')}.\n\n` +
+              `Cloning cannot verify field overlap against an unindexed table, and the clone would silently keep ` +
+              `"${cloneFrom}"'s OWN fields unmapped instead of failing — producing a form that looks bound to your ` +
+              `table but whose datasource/controls still reference the source table's fields.\n\n` +
+              `**Fix — choose one:**\n` +
+              `1. If ${unknownTargets.join(', ')} was just created this session, index it first, then retry:\n` +
+              `   \`update_symbol_index(filePath="<absolute path to ${unknownTargets[0]}.xml>")\`\n` +
+              `2. Check the table name for a typo with \`search("${unknownTargets[0]}", type="table")\`.`,
+          }],
+          isError: true,
+        };
       }
       if (poorOverlap.length > 0) {
         const targetList = Object.values(tableMapping as Record<string, string>).filter(Boolean).join(', ');

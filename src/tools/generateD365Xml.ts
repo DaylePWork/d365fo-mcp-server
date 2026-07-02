@@ -25,7 +25,8 @@ const GenerateD365XmlArgsSchema = z.object({
       'menu-item-display', 'menu-item-action', 'menu-item-output',
       'menu-item-display-extension', 'menu-item-action-extension', 'menu-item-output-extension',
       'menu', 'menu-extension',
-      'security-privilege', 'security-duty', 'security-role', 'map',
+      'security-privilege', 'security-duty', 'security-role',
+      'security-duty-extension', 'security-role-extension', 'map',
     ])
     .describe('Type of D365FO object'),
   objectName: z
@@ -1066,6 +1067,10 @@ ${defaultParamGroupXml}
         return this.generateAxSecurityDutyXml(objectName, properties);
       case 'security-role':
         return this.generateAxSecurityRoleXml(objectName, properties);
+      case 'security-duty-extension':
+        return this.generateAxSecurityDutyExtensionXml(objectName, properties);
+      case 'security-role-extension':
+        return this.generateAxSecurityRoleExtensionXml(objectName, properties);
       default:
         throw new Error(`Unsupported object type: ${objectType}`);
     }
@@ -1408,6 +1413,52 @@ ${relationsXml}
 \t<SubRoles />
 </AxSecurityRole>`;
   }
+
+  /** Normalize a name list that may arrive as an array or a comma/semicolon/newline-separated string. */
+  private static normalizeNameList(value: any): string[] {
+    if (!value) return [];
+    const arr = Array.isArray(value) ? value : String(value).split(/[,;\n]+/);
+    return arr.map((s: any) => String(s).trim()).filter((s: string) => s.length > 0);
+  }
+
+  private static refContainer(container: string, childTag: string, names: string[]): string {
+    if (names.length === 0) return `\t<${container} />`;
+    const children = names
+      .map(n => `\t\t<${childTag}>\n\t\t\t<Name>${n}</Name>\n\t\t</${childTag}>`)
+      .join('\n');
+    return `\t<${container}>\n${children}\n\t</${container}>`;
+  }
+
+  /**
+   * Generate AxSecurityDutyExtension XML — adds privileges to an EXISTING duty
+   * without overlaying it. Name convention: "<BaseDuty>.<PrefixOrModel>Extension".
+   */
+  static generateAxSecurityDutyExtensionXml(name: string, properties?: Record<string, any>): string {
+    const privileges = this.normalizeNameList(properties?.privileges);
+    return `<?xml version="1.0" encoding="utf-8"?>
+<AxSecurityDutyExtension xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+\t<Name>${name}</Name>
+${this.refContainer('Privileges', 'AxSecurityPrivilegeReference', privileges)}
+\t<PropertyModifications />
+</AxSecurityDutyExtension>`;
+  }
+
+  /**
+   * Generate AxSecurityRoleExtension XML — adds duties/privileges to an EXISTING
+   * role without overlaying it. Name convention: "<BaseRole>.<PrefixOrModel>Extension".
+   */
+  static generateAxSecurityRoleExtensionXml(name: string, properties?: Record<string, any>): string {
+    const duties = this.normalizeNameList(properties?.duties);
+    const privileges = this.normalizeNameList(properties?.privileges);
+    return `<?xml version="1.0" encoding="utf-8"?>
+<AxSecurityRoleExtension xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+\t<Name>${name}</Name>
+\t<DirectAccessPermissions />
+${this.refContainer('Duties', 'AxSecurityDutyReference', duties)}
+${this.refContainer('Privileges', 'AxSecurityPrivilegeReference', privileges)}
+\t<PropertyModifications />
+</AxSecurityRoleExtension>`;
+  }
 }
 
 /**
@@ -1463,6 +1514,8 @@ export async function handleGenerateD365Xml(
       'security-privilege': 'AxSecurityPrivilege',
       'security-duty': 'AxSecurityDuty',
       'security-role': 'AxSecurityRole',
+      'security-duty-extension': 'AxSecurityDutyExtension',
+      'security-role-extension': 'AxSecurityRoleExtension',
       map: 'AxMap',
     };
 

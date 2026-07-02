@@ -293,6 +293,34 @@ describe('generate_d365fo_xml', () => {
     );
     expect(result.isError).toBe(true);
   });
+
+  it('generates security-duty-extension XML (Azure/Linux fallback for the create gap)', async () => {
+    const result = await handleGenerateD365Xml(
+      req('generate_d365fo_xml', {
+        objectType: 'security-duty-extension',
+        objectName: 'SalesOrderProgressInquire.MyExtension',
+        modelName: 'MyModel',
+        properties: { privileges: ['MyAuditLogView'] },
+      }),
+    );
+    expect(result.isError).toBeFalsy();
+    expect(result.content[0].text).toContain('<AxSecurityDutyExtension');
+    expect(result.content[0].text).toContain('<Name>MyAuditLogView</Name>');
+  });
+
+  it('generates security-role-extension XML (Azure/Linux fallback for the create gap)', async () => {
+    const result = await handleGenerateD365Xml(
+      req('generate_d365fo_xml', {
+        objectType: 'security-role-extension',
+        objectName: 'SystemUser.MyExtension',
+        modelName: 'MyModel',
+        properties: { duties: ['MyAuditInquireDuty'] },
+      }),
+    );
+    expect(result.isError).toBeFalsy();
+    expect(result.content[0].text).toContain('<AxSecurityRoleExtension');
+    expect(result.content[0].text).toContain('<Name>MyAuditInquireDuty</Name>');
+  });
 });
 
 // ─── XmlTemplateGenerator.generateAxDataEntityXml ───────────────────────────
@@ -568,6 +596,59 @@ describe('XmlTemplateGenerator security duty/role generators', () => {
     expect(xml).toContain('<AxSecurityRoleDutyPermission>\n\t\t\t<Name>MyDuty1</Name>');
     expect(xml).toContain('<Name>MyDuty2</Name>');
     expect(xml).not.toContain('<Duties />');
+  });
+});
+
+// ─── security-duty-extension / security-role-extension generators ───────────
+// AxSecurityDutyExtension/AxSecurityRoleExtension add privileges/duties to an
+// EXISTING (often Microsoft-owned) duty/role without overlaying it — confirmed
+// against real shipped objects, e.g.
+// ApplicationCommon\AxSecurityDutyExtension\BatchJobMaintain.ApplicationCommon.xml
+// and ApplicationCommon\AxSecurityRoleExtension\SystemUser.ApplicationCommon.xml.
+describe('XmlTemplateGenerator security duty/role EXTENSION generators', () => {
+  it('emits AxSecurityPrivilegeReference entries on a duty extension', () => {
+    const xml = XmlTemplateGenerator.generateAxSecurityDutyExtensionXml(
+      'SalesOrderProgressInquire.AslExtension',
+      { privileges: ['AslSalesPostingAuditLogView'] },
+    );
+    expect(xml).toContain('<AxSecurityDutyExtension');
+    expect(xml).toContain('<Name>SalesOrderProgressInquire.AslExtension</Name>');
+    expect(xml).toContain('<AxSecurityPrivilegeReference>\n\t\t\t<Name>AslSalesPostingAuditLogView</Name>');
+    expect(xml).toContain('<PropertyModifications />');
+    // No <Label> — duty extensions don't carry one (only the base duty does).
+    expect(xml).not.toContain('<Label>');
+  });
+
+  it('accepts a comma-separated privilege string on a duty extension', () => {
+    const xml = XmlTemplateGenerator.generateAxSecurityDutyExtensionXml('MyDuty.Extension', {
+      privileges: 'MyView, MyMaintain',
+    });
+    expect(xml).toContain('<Name>MyView</Name>');
+    expect(xml).toContain('<Name>MyMaintain</Name>');
+  });
+
+  it('keeps an empty self-closing Privileges when none are given on a duty extension', () => {
+    const xml = XmlTemplateGenerator.generateAxSecurityDutyExtensionXml('MyDuty.Extension', {});
+    expect(xml).toContain('<Privileges />');
+  });
+
+  it('emits duty + privilege references on a role extension', () => {
+    const xml = XmlTemplateGenerator.generateAxSecurityRoleExtensionXml(
+      'SystemUser.AslExtension',
+      { duties: ['MyDuty1'], privileges: ['MyPrivilege1'] },
+    );
+    expect(xml).toContain('<AxSecurityRoleExtension');
+    expect(xml).toContain('<Name>SystemUser.AslExtension</Name>');
+    expect(xml).toContain('<DirectAccessPermissions />');
+    expect(xml).toContain('<AxSecurityDutyReference>\n\t\t\t<Name>MyDuty1</Name>');
+    expect(xml).toContain('<AxSecurityPrivilegeReference>\n\t\t\t<Name>MyPrivilege1</Name>');
+    expect(xml).toContain('<PropertyModifications />');
+  });
+
+  it('keeps empty self-closing Duties/Privileges when none are given on a role extension', () => {
+    const xml = XmlTemplateGenerator.generateAxSecurityRoleExtensionXml('MyRole.Extension', {});
+    expect(xml).toContain('<Duties />');
+    expect(xml).toContain('<Privileges />');
   });
 });
 

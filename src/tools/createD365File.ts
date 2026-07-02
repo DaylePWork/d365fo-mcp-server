@@ -62,6 +62,7 @@ const CreateD365FileArgsSchema = z.object({
       'menu-item-display-extension', 'menu-item-action-extension', 'menu-item-output-extension',
       'menu', 'menu-extension',
       'security-privilege', 'security-duty', 'security-role',
+      'security-duty-extension', 'security-role-extension',
       'business-event', 'tile', 'kpi', 'map',
     ])
     .describe('Type of D365FO object to create'),
@@ -1469,6 +1470,10 @@ ${defaultParamGroupXml}
         return this.generateAxSecurityDutyXml(objectName, properties);
       case 'security-role':
         return this.generateAxSecurityRoleXml(objectName, properties);
+      case 'security-duty-extension':
+        return this.generateAxSecurityDutyExtensionXml(objectName, properties);
+      case 'security-role-extension':
+        return this.generateAxSecurityRoleExtensionXml(objectName, properties);
       case 'business-event':
         return XmlTemplateGenerator.generateBusinessEventXml(objectName, properties);
       case 'tile':
@@ -2657,6 +2662,45 @@ ${this.securityRefContainer('Privileges', 'AxSecurityRolePermissionSet', privile
   }
 
   /**
+   * Generate AxSecurityDutyExtension XML — adds privileges to an EXISTING (often
+   * Microsoft-owned) duty without overlaying it. Real Microsoft object type, e.g.
+   * K:\...\ApplicationCommon\AxSecurityDutyExtension\BatchJobMaintain.ApplicationCommon.xml.
+   * Name convention: "<BaseDuty>.<PrefixOrModel>Extension" (same dot-notation as
+   * menu-extension / table-extension — see DOT_NOTATION_EXTENSION_TYPES).
+   * properties.privileges – privilege names to add to the base duty (array or comma-separated).
+   */
+  static generateAxSecurityDutyExtensionXml(name: string, properties?: Record<string, any>): string {
+    const privileges = this.normalizeNameList(properties?.privileges);
+    return `<?xml version="1.0" encoding="utf-8"?>
+<AxSecurityDutyExtension xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+\t<Name>${name}</Name>
+${this.securityRefContainer('Privileges', 'AxSecurityPrivilegeReference', privileges)}
+\t<PropertyModifications />
+</AxSecurityDutyExtension>`;
+  }
+
+  /**
+   * Generate AxSecurityRoleExtension XML — adds duties and/or privileges to an
+   * EXISTING (often Microsoft-owned) role without overlaying it. Real Microsoft
+   * object type, e.g. K:\...\ApplicationCommon\AxSecurityRoleExtension\SystemUser.ApplicationCommon.xml.
+   * Name convention: "<BaseRole>.<PrefixOrModel>Extension".
+   * properties.duties     – duty names to add to the base role (array or comma-separated).
+   * properties.privileges – privilege names to add directly to the base role.
+   */
+  static generateAxSecurityRoleExtensionXml(name: string, properties?: Record<string, any>): string {
+    const duties = this.normalizeNameList(properties?.duties);
+    const privileges = this.normalizeNameList(properties?.privileges);
+    return `<?xml version="1.0" encoding="utf-8"?>
+<AxSecurityRoleExtension xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+\t<Name>${name}</Name>
+\t<DirectAccessPermissions />
+${this.securityRefContainer('Duties', 'AxSecurityDutyReference', duties)}
+${this.securityRefContainer('Privileges', 'AxSecurityPrivilegeReference', privileges)}
+\t<PropertyModifications />
+</AxSecurityRoleExtension>`;
+  }
+
+  /**
    * Generate BusinessEventsContract class XML (AxClass) for a Business Event.
    * The class extends BusinessEventsBase and includes a companion contract class.
    */
@@ -2919,6 +2963,8 @@ export class ProjectFileManager {
       'security-privilege': 'Security Privileges',
       'security-duty': 'Security Duties',
       'security-role': 'Security Roles',
+      'security-duty-extension': 'Security Duties',
+      'security-role-extension': 'Security Roles',
       'business-event': 'Classes',
       'label-file': 'Label Files',
       tile: 'Tiles',
@@ -2960,6 +3006,8 @@ export class ProjectFileManager {
       'security-privilege': 'AxSecurityPrivilege',
       'security-duty': 'AxSecurityDuty',
       'security-role': 'AxSecurityRole',
+      'security-duty-extension': 'AxSecurityDutyExtension',
+      'security-role-extension': 'AxSecurityRoleExtension',
       'business-event': 'AxClass',
       'label-file': 'AxLabelFile',
       tile: 'AxTile',
@@ -3616,6 +3664,7 @@ export async function handleCreateD365File(
       'table-extension', 'form-extension', 'enum-extension', 'edt-extension',
       'data-entity-extension', 'menu-item-display-extension', 'menu-item-action-extension',
       'menu-item-output-extension', 'menu-extension',
+      'security-duty-extension', 'security-role-extension',
     ]);
     if (DOT_NOTATION_EXTENSION_TYPES.has(args.objectType) && !effectiveObjectName.includes('.')) {
       effectiveObjectName = `${effectiveObjectName}.Extension`;
@@ -3693,6 +3742,8 @@ export async function handleCreateD365File(
       'security-privilege': 'AxSecurityPrivilege',
       'security-duty': 'AxSecurityDuty',
       'security-role': 'AxSecurityRole',
+      'security-duty-extension': 'AxSecurityDutyExtension',
+      'security-role-extension': 'AxSecurityRoleExtension',
       'business-event': 'AxClass',
       'label-file': 'AxLabelFile',
       tile: 'AxTile',

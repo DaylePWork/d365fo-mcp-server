@@ -580,6 +580,52 @@ describe('create_d365fo_file', () => {
     expect(text).not.toMatch(/MyModelPurchTable|[A-Za-z]+PurchTable\.xml/);
   });
 
+  it('supports security-duty-extension: dot-notation naming + AxSecurityDutyExtension folder + XML', async () => {
+    // Gap found live (2026-07-01 usage-examples eval, scenario 2): d365fo_file had no
+    // security-duty-extension/security-role-extension objectType even though
+    // AxSecurityDutyExtension/AxSecurityRoleExtension are real, common Microsoft AOT
+    // types (e.g. ApplicationCommon\AxSecurityDutyExtension\BatchJobMaintain...xml) used
+    // to add a privilege to an EXISTING duty without overlaying it. Verifies the bare
+    // base name ("SalesOrderProgressInquire") follows the same dot-notation path as
+    // menu-extension/table-extension, lands in the AxSecurityDutyExtension folder, and
+    // the written XML references the given privilege.
+    const result = await handleCreateD365File(
+      req('create_d365fo_file', {
+        objectType: 'security-duty-extension',
+        objectName: 'SalesOrderProgressInquire',
+        modelName: 'Contoso',
+        packageName: 'Contoso',
+        packagePath: 'K:\\PackagesLocalDirectory',
+        addToProject: false,
+        properties: { privileges: ['ContosoSalesPostingAuditLogView'] },
+      }),
+    );
+    const text: string = result.content[0].text;
+    expect((result as any).isError).not.toBe(true);
+    expect(text).toMatch(/AxSecurityDutyExtension/);
+    expect(text).toMatch(/SalesOrderProgressInquire[.][^/\\]*[Ee]xtension/);
+    expect(text).not.toMatch(/[A-Za-z]+SalesOrderProgressInquire\.xml/);
+  });
+
+  it('supports security-role-extension: dot-notation naming + AxSecurityRoleExtension folder + XML', async () => {
+    const result = await handleCreateD365File(
+      req('create_d365fo_file', {
+        objectType: 'security-role-extension',
+        objectName: 'SystemUser',
+        modelName: 'Contoso',
+        packageName: 'Contoso',
+        packagePath: 'K:\\PackagesLocalDirectory',
+        addToProject: false,
+        properties: { duties: ['ContosoAuditInquireDuty'] },
+      }),
+    );
+    const text: string = result.content[0].text;
+    expect((result as any).isError).not.toBe(true);
+    expect(text).toMatch(/AxSecurityRoleExtension/);
+    expect(text).toMatch(/SystemUser[.][^/\\]*[Ee]xtension/);
+    expect(text).not.toMatch(/[A-Za-z]+SystemUser\.xml/);
+  });
+
   it('auto-converts bare class-extension name to _Extension form (Case D fix)', async () => {
     // Bug: objectType="class-extension", objectName="SalesFormLetter" (no "_Extension"
     // suffix) used to have no dot and not end in "_Extension", so it fell into

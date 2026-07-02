@@ -21,6 +21,7 @@ const OBJECT_TYPES = [
   'menu-item-display-extension', 'menu-item-action-extension', 'menu-item-output-extension',
   'menu', 'menu-extension',
   'security-privilege', 'security-duty', 'security-role',
+  'security-duty-extension', 'security-role-extension',
 ] as const;
 
 const objectFolderMap: Record<string, string> = {
@@ -49,6 +50,8 @@ const objectFolderMap: Record<string, string> = {
   'security-privilege':           'AxSecurityPrivilege',
   'security-duty':                'AxSecurityDuty',
   'security-role':                'AxSecurityRole',
+  'security-duty-extension':      'AxSecurityDutyExtension',
+  'security-role-extension':      'AxSecurityRoleExtension',
 };
 
 // Reverse of objectFolderMap: AOT folder name (lowercased) → object type. Used to

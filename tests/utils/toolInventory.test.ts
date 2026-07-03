@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { LOCAL_TOOLS } from '../../src/server/serverMode';
 import { TOOL_ANNOTATIONS } from '../../src/server/toolAnnotations';
+import { toolSchemas } from '../../src/server/toolSchemas/index';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,10 +20,9 @@ function extractSingleQuotedToolNames(source: string): string[] {
 }
 
 describe('tool inventory contract', () => {
-  const mcpServerSource = readRepoFile('src/server/mcpServer.ts');
   const startupCatalogSource = readRepoFile('src/index.ts');
 
-  const mcpServerToolNames = extractSingleQuotedToolNames(mcpServerSource);
+  const mcpServerToolNames = [...new Set(toolSchemas.map(t => t.name))];
   const startupCatalogToolNames = extractSingleQuotedToolNames(startupCatalogSource);
 
   it('keeps mcpServer tools and startup catalog in sync', () => {
@@ -98,9 +98,10 @@ describe('tool inventory contract', () => {
       // aliases / lookup
       'methodCode', 'sourceCode', 'baseFormName', 'filePath',
     ];
+    const d365foFileSchemaSource = readRepoFile('src/server/toolSchemas/d365foFile.ts');
     for (const param of requiredModifyParams) {
       expect(
-        new RegExp(`\\b${param}:\\s*\\{`).test(mcpServerSource),
+        new RegExp(`\\b${param}:\\s*\\{`).test(d365foFileSchemaSource),
         `d365fo_file inputSchema is missing advertised modify param '${param}'`,
       ).toBe(true);
     }

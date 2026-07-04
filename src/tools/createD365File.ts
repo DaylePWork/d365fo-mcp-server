@@ -23,6 +23,7 @@ import { gateOnReferenceErrors } from './resolveReferences.js';
 import { normalizeD365Xml } from '../utils/d365XmlNormalizer.js';
 import { buildAxSecurityPrivilegeXml } from './securityPrivilegeXml.js';
 import { buildAxDataEntityXml } from './dataEntityXml.js';
+import { resolveEdtBaseType, heuristicEdtBaseType, isEnumName, bridgeEdtBaseType } from './generateSmartTable.js';
 import { buildAxQueryXml, buildAxViewXml } from './queryViewXml.js';
 import { buildAxMapXml } from './mapXml.js';
 
@@ -262,6 +263,42 @@ export function normalizeFieldSpecsForBridge(
     if (f.mandatory != null) out.mandatory = f.mandatory;
     if (f.label != null) out.label = f.label;
     if (f.stringSize != null) out.stringSize = f.stringSize;
+    return out;
+  });
+}
+
+/**
+ * Normalize the flexible index specs accepted by the tool into the key shape the
+ * C# bridge's WriteIndexParam actually deserializes: `{ name, fields: string[],
+ * alternateKey?, allowDuplicates? }`.
+ *
+ * CRITICAL: the ONLY index shape documented anywhere in the tool's schema is the
+ * `modify(operation="add-index")` one — `{ indexName, indexFields: [{ fieldName }] }`
+ * — and `modifyD365File.ts` correctly translates those keys before calling the
+ * bridge. But `d365fo_file(action="create", objectType="table"|"table-extension",
+ * properties.indexes=[...])` forwarded `properties.indexes` to the bridge
+ * UNTRANSLATED. WriteIndexParam has no `indexName`/`indexFields` properties, so
+ * System.Text.Json silently ignores both unrecognized keys — the create call still
+ * reports success, but the written index has an empty Name and an empty Fields
+ * list, which xppc rejects at build time ("the name of the '1st' index is not
+ * valid"). Accept both the bridge's native `{name, fields}` shape and the
+ * documented `{indexName, indexFields}` shape so create behaves the same as modify.
+ */
+export function normalizeIndexSpecsForBridge(
+  indexes: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  return indexes.map((idx) => {
+    const name = idx.name ?? idx.indexName;
+    const rawFields = (idx.fields ?? idx.indexFields) as unknown[] | undefined;
+    const fields = Array.isArray(rawFields)
+      ? rawFields
+          .map((f) => (typeof f === 'string' ? f : (f as Record<string, unknown> | null)?.fieldName))
+          .filter((f): f is string => typeof f === 'string' && f.length > 0)
+      : undefined;
+    const out: Record<string, unknown> = { name };
+    if (fields && fields.length > 0) out.fields = fields;
+    if (idx.alternateKey != null) out.alternateKey = idx.alternateKey;
+    if (idx.allowDuplicates != null) out.allowDuplicates = idx.allowDuplicates;
     return out;
   });
 }
@@ -4019,13 +4056,40 @@ export async function handleCreateD365File(
           const props = args.properties as Record<string, unknown>;
           if (props.fields) bridgeParams.fields = normalizeFieldSpecsForBridge(props.fields as Record<string, unknown>[]);
           if (props.fieldGroups) bridgeParams.fieldGroups = props.fieldGroups as Record<string, unknown>[];
-          if (props.indexes) bridgeParams.indexes = props.indexes as Record<string, unknown>[];
+          if (props.indexes) bridgeParams.indexes = normalizeIndexSpecsForBridge(props.indexes as Record<string, unknown>[]);
           if (props.relations) bridgeParams.relations = props.relations as Record<string, unknown>[];
           if (props.methods) {
             bridgeParams.methods = (props.methods as { name: string; source?: string }[]).map(m => ({
               ...m,
               source: m.source !== undefined ? reindentXppSource(m.source) : m.source,
             }));
+          }
+
+          // Resolve each field's base type from its EDT when the caller only gave
+          // `edt` (the documented usage — the tool schema says "EDT auto-resolved
+          // when omitted"). Without this, C# CreateTableField() defaults ANY field
+          // whose `type` is unset to AxTableFieldString regardless of the EDT's real
+          // base type — a Real-based EDT (e.g. a rate/amount) or a Date-based EDT
+          // silently becomes a string field. `generateSmartTable`/`generate_object`
+          // already resolve this; the plain d365fo_file(create, table/table-extension)
+          // path never did. Mirrors that resolution: bridge (authoritative) → indexed
+          // edt_metadata chain → name heuristic.
+          if (bridgeParams.fields && bridgeParams.fields.length > 0) {
+            const db = context.symbolIndex?.getReadDb?.();
+            for (const f of bridgeParams.fields as Record<string, unknown>[]) {
+              const edt = f.edt as string | undefined;
+              if (!edt || f.type) continue;
+              if (db && !f.enumType && isEnumName(edt, db)) {
+                f.enumType = edt;
+                f.type = 'Enum';
+                delete f.edt;
+                continue;
+              }
+              const resolved = (await bridgeEdtBaseType(context.bridge, edt))
+                ?? (db ? resolveEdtBaseType(edt, db) : undefined)
+                ?? heuristicEdtBaseType(edt);
+              if (resolved) f.type = resolved;
+            }
           }
         }
 

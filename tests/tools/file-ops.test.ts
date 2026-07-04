@@ -519,6 +519,89 @@ describe('create_d365fo_file', () => {
     ]);
   });
 
+  it('table create resolves a field\'s base type from its EDT when only `edt` is given', async () => {
+    // Regression (eval scenario 1 — Equipment Rental): d365fo_file(create, objectType="table")
+    // never resolved a field's base type from its EDT — only generateSmartTable/generate_object
+    // did. C# CreateTableField() defaults any field whose `type` is unset to AxTableFieldString,
+    // so a Real-based EDT (e.g. a daily-rate EDT extending AmountCur) or a Date-based EDT
+    // silently became a string field. Reproduced live: a table field `{ name: "DailyRate", edt:
+    // "AC_RentDailyRate" }` (EDT extends AmountCur, a Real EDT) was written as
+    // i:type="AxTableFieldString" — no build error, just silently wrong, until later X++ against
+    // the field (e.g. Qty * DailyRate) fails to compile.
+    const createObject = vi.fn(async () => ({
+      success: true,
+      filePath: 'K:\\PackagesLocalDirectory\\MyPackage\\MyModel\\AxTable\\MyTable.xml',
+      api: 'IMetaTableProvider.Create',
+    }));
+    const ctx = buildContext();
+    (ctx as any).bridge = { isReady: true, metadataAvailable: true, createObject, validateObject: vi.fn(async () => null) };
+
+    const result = await handleCreateD365File(
+      req('create_d365fo_file', {
+        objectType: 'table',
+        objectName: 'MyTable',
+        modelName: 'Contoso',
+        packageName: 'Contoso',
+        packagePath: 'K:\\PackagesLocalDirectory',
+        addToProject: false,
+        properties: {
+          fields: [
+            { name: 'DailyRate', edt: 'ContosoRentDailyRate' }, // no explicit type — must be resolved
+          ],
+        },
+      }),
+      ctx,
+    );
+
+    expect((result as any).isError).toBeFalsy();
+    expect(createObject).toHaveBeenCalledTimes(1);
+    const sentParams = createObject.mock.calls[0][0];
+    // No index/bridge EDT info available in this unit test — falls back to the name heuristic,
+    // which recognizes "...Rate" as Real. The point under test is that `type` is populated
+    // AT ALL from the edt, not left undefined (which the bridge treats as "String").
+    expect(sentParams.fields[0].type).toBe('Real');
+    expect(sentParams.fields[0].edt).toBe('ContosoRentDailyRate');
+  });
+
+  it('table create normalizes properties.indexes (indexName/indexFields -> name/fields)', async () => {
+    // Regression (eval scenario 1 — Equipment Rental): the only index shape documented
+    // anywhere in the tool (modify operation="add-index") is { indexName, indexFields:
+    // [{fieldName}] } — and modifyD365File.ts correctly translates those keys before calling
+    // the bridge. But d365fo_file(create, objectType="table", properties.indexes=[...]) forwarded
+    // properties.indexes UNTRANSLATED. WriteIndexParam has no indexName/indexFields properties,
+    // so System.Text.Json silently drops both — create still reports success, but the written
+    // index has an empty Name and empty Fields, which xppc rejects at build time ("the name of
+    // the '1st' index is not valid"). Reproduced live against a real table create.
+    const createObject = vi.fn(async () => ({
+      success: true,
+      filePath: 'K:\\PackagesLocalDirectory\\MyPackage\\MyModel\\AxTable\\MyTable.xml',
+      api: 'IMetaTableProvider.Create',
+    }));
+    const ctx = buildContext();
+    (ctx as any).bridge = { isReady: true, metadataAvailable: true, createObject, validateObject: vi.fn(async () => null) };
+
+    const result = await handleCreateD365File(
+      req('create_d365fo_file', {
+        objectType: 'table',
+        objectName: 'MyTable',
+        modelName: 'Contoso',
+        packageName: 'Contoso',
+        packagePath: 'K:\\PackagesLocalDirectory',
+        addToProject: false,
+        properties: {
+          fields: [{ name: 'MyId', edt: 'RefRecId', type: 'Int64' }],
+          indexes: [{ indexName: 'MyIdIdx', alternateKey: true, indexFields: [{ fieldName: 'MyId' }] }],
+        },
+      }),
+      ctx,
+    );
+
+    expect((result as any).isError).toBeFalsy();
+    expect(createObject).toHaveBeenCalledTimes(1);
+    const sentParams = createObject.mock.calls[0][0];
+    expect(sentParams.indexes).toEqual([{ name: 'MyIdIdx', fields: ['MyId'], alternateKey: true }]);
+  });
+
   it('blocks form-extension create when xmlContent uses the malformed control shape', async () => {
     // Guard: the deserializer-rejecting shape an AI tends to hand-write
     // (AxFormControlExtension / ParentControlName / FormControlExtension-wrapping / AxFormIntControl)

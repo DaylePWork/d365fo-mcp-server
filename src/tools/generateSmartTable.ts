@@ -1084,7 +1084,7 @@ export async function handleGenerateSmartTable(
  * unavailable, doesn't know the EDT, or reports it as Enum (enum-backed EDTs are
  * handled separately via the enumType path, so we must not emit a bare "Enum" here).
  */
-async function bridgeEdtBaseType(bridge: BridgeClient | undefined, edtName: string): Promise<string | undefined> {
+export async function bridgeEdtBaseType(bridge: BridgeClient | undefined, edtName: string): Promise<string | undefined> {
   if (!bridge?.isReady) return undefined;
   try {
     const info = await bridge.readEdt(edtName);

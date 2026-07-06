@@ -183,6 +183,27 @@ export function deriveExtensionInfix(resolvedPrefix: string): string {
 }
 
 /**
+ * Resolve the literal prefix TOKEN that `applyObjectPrefix` prepends to a
+ * REGULAR (non-extension) new object name for the CURRENT session — i.e. the
+ * exact substring that will appear at the start of e.g. an EDT/table/class
+ * Name in generated metadata (`{token}{ObjectName}`).
+ *
+ * Factored out of `applyObjectPrefix`'s "regular objects" branch (same
+ * underscore-style-vs-PascalCase derivation) so other callers that need to
+ * recognise/strip this token from ALREADY-GENERATED names — notably the eval
+ * golden oracle's prefix-agnostic comparison (src/eval/oracle/normalize.ts,
+ * see docs/AGENT_EVAL_LOOP.md §6.2) — don't have to duplicate the branching
+ * logic. Returns '' when no prefix is configured.
+ */
+export function resolveRegularObjectPrefixToken(modelName?: string): string {
+  const resolved = resolveObjectPrefix(modelName ?? '');
+  if (!resolved) return '';
+  const rawEnvPrefix = process.env.EXTENSION_PREFIX?.trim() ?? '';
+  const envHasUnderscore = rawEnvPrefix.endsWith('_');
+  return envHasUnderscore ? rawEnvPrefix : resolved.charAt(0).toUpperCase() + resolved.slice(1);
+}
+
+/**
  * Apply prefix to a NEW model element name.
  * Per MS guidelines, the prefix is concatenated directly (no separator):
  *   WHSMyTable, MyPrefixMyClass, ContosoMyForm

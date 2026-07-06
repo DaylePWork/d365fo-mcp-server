@@ -11,7 +11,10 @@ import { diffNormalized, type GoldenDiff } from './diff.js';
 import { scoreRun, type BuildResult, type Score } from './score.js';
 import { type SysTestResult } from './systest.js';
 
-export { normalizeAotXml, normalizeMultiArtifact, renderNormalized, globToRegExp } from './normalize.js';
+export {
+  normalizeAotXml, normalizeMultiArtifact, renderNormalized, globToRegExp,
+  GOLDEN_CAPTURE_PREFIX, canonicalizePrefix,
+} from './normalize.js';
 export { diffNormalized, renderDiff, type GoldenDiff } from './diff.js';
 export { scoreRun, type Score, type BuildResult, type ScoreInput } from './score.js';
 export { parseSysTestResult, type SysTestResult, type SysTestFailure } from './systest.js';
@@ -29,6 +32,22 @@ export interface EvaluateInput {
   build: BuildResult;
   /** Runtime-oracle result (e.g. from parseSysTestResult); omit when the case has no SysTest. */
   systest?: SysTestResult | { passed: boolean | null } | null;
+  /**
+   * EXTENSION_PREFIX the golden was captured under, to canonicalise away
+   * before comparing (docs/AGENT_EVAL_LOOP.md §6.2). Pass
+   * `GOLDEN_CAPTURE_PREFIX` for the committed `eval/goldens/` corpus. Defaults
+   * to '' (no canonicalisation — legacy literal-string comparison), so
+   * existing callers that don't pass one are unaffected.
+   */
+  goldenPrefix?: string;
+  /**
+   * EXTENSION_PREFIX the actual artifact was produced under (the CURRENT
+   * session's configured prefix — see
+   * `resolveRegularObjectPrefixToken()` in src/utils/modelClassifier.ts).
+   * Defaults to '' (no canonicalisation), so callers that don't know/care
+   * about prefix drift keep the legacy literal-string comparison.
+   */
+  actualPrefix?: string;
 }
 
 export interface EvaluateResult {
@@ -40,10 +59,12 @@ export interface EvaluateResult {
 
 export async function evaluate(input: EvaluateInput): Promise<EvaluateResult> {
   const { caseSpec, actualXml, goldenXml, build, systest } = input;
+  const goldenPrefix = input.goldenPrefix ?? '';
+  const actualPrefix = input.actualPrefix ?? '';
   const ignore = caseSpec.ignore ?? [];
   const [expected, actual] = await Promise.all([
-    normalizeAotXml(goldenXml, ignore),
-    normalizeAotXml(actualXml, ignore),
+    normalizeAotXml(goldenXml, ignore, goldenPrefix),
+    normalizeAotXml(actualXml, ignore, actualPrefix),
   ]);
   const goldenDiff = diffNormalized(expected, actual);
   const score = scoreRun({ build, goldenDiff, tier: caseSpec.tier, systest });
@@ -61,6 +82,10 @@ export interface EvaluateMultiInput {
   goldenArtifacts: Record<string, string>;
   build: BuildResult;
   systest?: SysTestResult | { passed: boolean | null } | null;
+  /** See EvaluateInput.goldenPrefix. */
+  goldenPrefix?: string;
+  /** See EvaluateInput.actualPrefix. */
+  actualPrefix?: string;
 }
 
 /**
@@ -73,10 +98,12 @@ export interface EvaluateMultiInput {
  */
 export async function evaluateMulti(input: EvaluateMultiInput): Promise<EvaluateResult> {
   const { caseSpec, actualArtifacts, goldenArtifacts, build, systest } = input;
+  const goldenPrefix = input.goldenPrefix ?? '';
+  const actualPrefix = input.actualPrefix ?? '';
   const ignore = caseSpec.ignore ?? [];
   const [expected, actual] = await Promise.all([
-    normalizeMultiArtifact(goldenArtifacts, ignore),
-    normalizeMultiArtifact(actualArtifacts, ignore),
+    normalizeMultiArtifact(goldenArtifacts, ignore, goldenPrefix),
+    normalizeMultiArtifact(actualArtifacts, ignore, actualPrefix),
   ]);
   const goldenDiff = diffNormalized(expected, actual);
   const score = scoreRun({ build, goldenDiff, tier: caseSpec.tier, systest });

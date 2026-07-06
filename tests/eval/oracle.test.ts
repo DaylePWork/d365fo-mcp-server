@@ -14,6 +14,8 @@ import {
   scoreRun,
   evaluate,
   evaluateMulti,
+  canonicalizePrefix,
+  GOLDEN_CAPTURE_PREFIX,
 } from '../../src/eval/oracle/index';
 
 const ENUM_GOLDEN = `<?xml version="1.0" encoding="utf-8"?>
@@ -283,5 +285,122 @@ describe('evaluate (end-to-end oracle)', () => {
     expect(res.score.golden_match).toBe(0);
     expect(res.score.build).toBe(1);
     expect(res.score.bp_clean).toBe(0);
+  });
+});
+
+// Regression: a prefix-hardcoding bug discovered during a full-catalog eval run
+// (eval/corpus/runs/2026-07-06T10__L0-edt-basic__4fafcd8.json, classification
+// VALIDATOR_GAP). The L0-edt-basic golden was captured under EXTENSION_PREFIX="Asl"
+// (root object "AslXyzNoteSubject"); a run against a sandbox configured with
+// EXTENSION_PREFIX="FmMcp" correctly produced "FmMcpXyzNoteSubject" — the server
+// applied ITS session's configured prefix per its documented contract
+// (src/utils/modelClassifier.ts). Every other field matched byte-for-byte, yet the
+// oracle's literal string compare on the root Name spuriously failed golden_match.
+// Fixed by making normalize.ts canonicalise prefixed identifiers away before
+// diffing, given each side's own EXTENSION_PREFIX (docs/AGENT_EVAL_LOOP.md §6.2).
+describe('prefix-agnostic golden comparison (regression: eval/corpus/runs/2026-07-06T10__L0-edt-basic__4fafcd8.json)', () => {
+  const EDT_GOLDEN_ASL = `<?xml version="1.0" encoding="utf-8"?>
+<AxEdt xmlns:i="http://www.w3.org/2001/XMLSchema-instance" xmlns="" i:type="AxEdtString">
+  <Name>AslXyzNoteSubject</Name>
+  <Extends>Name</Extends>
+  <Label>Note subject</Label>
+  <ArrayElements />
+  <Relations />
+  <TableReferences />
+</AxEdt>`;
+
+  // Same logical object, produced under a DIFFERENT session's EXTENSION_PREFIX ("FmMcp"
+  // instead of "Asl") — this is the actual VM output that triggered the corpus record above.
+  const EDT_ACTUAL_FMMCP = EDT_GOLDEN_ASL.replace(/AslXyzNoteSubject/g, 'FmMcpXyzNoteSubject');
+
+  it('canonicalizePrefix reduces both prefix sessions to the same placeholder', () => {
+    expect(canonicalizePrefix('AslXyzNoteSubject', 'Asl'))
+      .toBe(canonicalizePrefix('FmMcpXyzNoteSubject', 'FmMcp'));
+  });
+
+  it('does NOT strip a prefix-shaped substring that is not at an identifier boundary', () => {
+    // "CustAslThing" — "Asl" is not at a boundary (preceded by a letter), so it must be left alone.
+    expect(canonicalizePrefix('CustAslThing', 'Asl')).toBe('CustAslThing');
+  });
+
+  it('does NOT strip when the prefix is not followed by an uppercase letter (not a real prefix use)', () => {
+    // A free-text label that happens to contain "Asl" mid-sentence, lowercase continuation.
+    expect(canonicalizePrefix('Asleep at the wheel', 'Asl')).toBe('Asleep at the wheel');
+  });
+
+  it('normalizeAotXml: root Name canonicalises identically for two different EXTENSION_PREFIX sessions', async () => {
+    const golden = await normalizeAotXml(EDT_GOLDEN_ASL, [], 'Asl');
+    const actual = await normalizeAotXml(EDT_ACTUAL_FMMCP, [], 'FmMcp');
+    expect(golden.get('AxEdt/Name')).toBe(actual.get('AxEdt/Name'));
+    expect(diffNormalized(golden, actual).matched).toBe(true);
+  });
+
+  it('evaluate(): golden_match=1 for an EDT captured under "Asl" and produced under "FmMcp" (this session\'s prefix)', async () => {
+    const res = await evaluate({
+      caseSpec: { id: 'L0-edt-basic', tier: 0, ignore: ['AxEdt/@Id', '**/ModelSaveInfo'] },
+      actualXml: EDT_ACTUAL_FMMCP,
+      goldenXml: EDT_GOLDEN_ASL,
+      build: { succeeded: true, bpWarnings: [{ code: 'BPErrorLabelIsText' }] },
+      goldenPrefix: GOLDEN_CAPTURE_PREFIX,
+      actualPrefix: 'FmMcp',
+    });
+    expect(res.goldenDiff.changed).toEqual([]);
+    expect(res.goldenDiff.matched).toBe(true);
+    expect(res.score.golden_match).toBe(1);
+  });
+
+  it('WITHOUT prefix canonicalisation (both prefixes empty) the same pair still mismatches — proves the fix is load-bearing', async () => {
+    const res = await evaluate({
+      caseSpec: { id: 'L0-edt-basic', tier: 0, ignore: ['AxEdt/@Id', '**/ModelSaveInfo'] },
+      actualXml: EDT_ACTUAL_FMMCP,
+      goldenXml: EDT_GOLDEN_ASL,
+      build: { succeeded: true, bpWarnings: [{ code: 'BPErrorLabelIsText' }] },
+      // no goldenPrefix/actualPrefix — legacy literal-string comparison
+    });
+    expect(res.score.golden_match).toBe(0);
+    expect(res.goldenDiff.changed.some(c => c.path === 'AxEdt/Name')).toBe(true);
+  });
+
+  it('a genuinely different root Name (not just a prefix change) still correctly mismatches', async () => {
+    const res = await evaluate({
+      caseSpec: { id: 'L0-edt-basic', tier: 0 },
+      actualXml: EDT_GOLDEN_ASL.replace('AslXyzNoteSubject', 'AslCompletelyDifferentEdt'),
+      goldenXml: EDT_GOLDEN_ASL,
+      build: { succeeded: true, bpWarnings: [] },
+      goldenPrefix: 'Asl',
+      actualPrefix: 'Asl',
+    });
+    expect(res.score.golden_match).toBe(0);
+  });
+
+  it('normalizeMultiArtifact: canonicalises the prefixed FILENAME key too, so a multi-artifact case matches across prefix sessions', async () => {
+    const CONTRACT_ASL = `<AxClass><Name>AslMyContract</Name></AxClass>`;
+    const CONTRACT_FMMCP = `<AxClass><Name>FmMcpMyContract</Name></AxClass>`;
+    const golden = await normalizeMultiArtifact({ 'AslMyContract.metadata.xml': CONTRACT_ASL }, [], 'Asl');
+    const actual = await normalizeMultiArtifact({ 'FmMcpMyContract.metadata.xml': CONTRACT_FMMCP }, [], 'FmMcp');
+    expect(diffNormalized(golden, actual).matched).toBe(true);
+  });
+
+  it('evaluateMulti(): a multi-artifact case matches across prefix sessions end-to-end', async () => {
+    const CONTRACT_ASL = `<AxClass><Name>AslMyContract</Name></AxClass>`;
+    const CONTROLLER_ASL = `<AxClass><Name>AslMyController</Name></AxClass>`;
+    const CONTRACT_FMMCP = `<AxClass><Name>FmMcpMyContract</Name></AxClass>`;
+    const CONTROLLER_FMMCP = `<AxClass><Name>FmMcpMyController</Name></AxClass>`;
+    const res = await evaluateMulti({
+      caseSpec: { id: 'L3-batch-basic', tier: 3 },
+      goldenArtifacts: {
+        'AslMyContract.metadata.xml': CONTRACT_ASL,
+        'AslMyController.metadata.xml': CONTROLLER_ASL,
+      },
+      actualArtifacts: {
+        'FmMcpMyContract.metadata.xml': CONTRACT_FMMCP,
+        'FmMcpMyController.metadata.xml': CONTROLLER_FMMCP,
+      },
+      build: { succeeded: true, bpWarnings: [] },
+      goldenPrefix: 'Asl',
+      actualPrefix: 'FmMcp',
+    });
+    expect(res.goldenDiff.matched).toBe(true);
+    expect(res.score.golden_match).toBe(1);
   });
 });

@@ -12,9 +12,19 @@
  *     --bp-warnings <n>   number of BP warnings (default: 0)
  *     --systest <file>    text file with the `run_systest_class` output (runtime oracle)
  *     --classification <C> rubric class for the record (default: derived)
+ *     --golden-prefix <p> EXTENSION_PREFIX the golden was captured under (default: GOLDEN_CAPTURE_PREFIX, "Asl")
+ *     --actual-prefix <p> EXTENSION_PREFIX the actual was produced under (default: read from THIS
+ *                         process's EXTENSION_PREFIX env var — the session that ran the case)
  *     --write             append a corpus record to eval/corpus/runs/
  *
  * `<actualXml>` may itself be a golden path to self-check the oracle (expect match).
+ *
+ * Root-object-name (and other prefixed-identifier) comparisons are
+ * prefix-agnostic by default: an actual object built under a DIFFERENT
+ * EXTENSION_PREFIX session than the one the golden was captured under still
+ * scores golden_match=1 as long as the object is otherwise identical (see
+ * docs/AGENT_EVAL_LOOP.md §6.2 and the corpus record that surfaced this —
+ * eval/corpus/runs/2026-07-06T10__L0-edt-basic__4fafcd8.json).
  */
 
 import * as fs from 'fs';
@@ -22,8 +32,10 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 import {
-  evaluate, evaluateMulti, renderDiff, renderNormalized, normalizeAotXml, parseSysTestResult, type CaseSpec,
+  evaluate, evaluateMulti, renderDiff, renderNormalized, normalizeAotXml, parseSysTestResult,
+  GOLDEN_CAPTURE_PREFIX, canonicalizePrefix, type CaseSpec,
 } from './index.js';
+import { resolveRegularObjectPrefixToken } from '../../utils/modelClassifier.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..', '..');
@@ -58,8 +70,37 @@ function shortSha(): string {
   catch { return 'unknown'; }
 }
 
+/**
+ * Resolve the actual-dir file matching a golden artifact filename. Tries an
+ * exact filename match first (fast path, and the only path when golden and
+ * actual happen to share the same EXTENSION_PREFIX session); if that misses,
+ * falls back to matching on the PREFIX-CANONICALISED filename (the golden's
+ * filename is itself typically a prefixed object name, e.g.
+ * "AslMyContract.metadata.xml", produced under a different session than the
+ * one that generated the actual artifacts) so a whole L3/L4 multi-artifact
+ * case doesn't spuriously score every artifact as missing/extra under prefix
+ * drift alone.
+ */
+function resolveActualFile(
+  actualDir: string,
+  goldenName: string,
+  goldenPrefix: string,
+  actualPrefix: string,
+): string | undefined {
+  const direct = path.join(actualDir, goldenName);
+  if (fs.existsSync(direct)) return direct;
+  const canonGolden = canonicalizePrefix(goldenName, goldenPrefix);
+  const candidate = fs.readdirSync(actualDir)
+    .filter(f => f.endsWith('.metadata.xml'))
+    .find(f => canonicalizePrefix(f, actualPrefix) === canonGolden);
+  return candidate ? path.join(actualDir, candidate) : undefined;
+}
+
 /** Flags that consume the following argv element as their value. */
-const VALUE_FLAGS = ['--golden', '--actual-dir', '--bp-warnings', '--systest', '--classification'];
+const VALUE_FLAGS = [
+  '--golden', '--actual-dir', '--bp-warnings', '--systest', '--classification',
+  '--golden-prefix', '--actual-prefix',
+];
 
 function positionalArgs(argv: string[]): string[] {
   const out: string[] = [];
@@ -98,34 +139,53 @@ async function main(): Promise<void> {
     ? parseSysTestResult(fs.readFileSync(path.resolve(systestFile), 'utf8'))
     : undefined;
 
+  // The golden corpus was captured under a fixed prefix (docs/AGENT_EVAL_LOOP.md §6.4); the
+  // actual defaults to THIS process's own EXTENSION_PREFIX — i.e. whatever session ran the
+  // case (the eval-implementer's VM env), not a guess. When EXTENSION_PREFIX isn't set at all
+  // (e.g. a local self-check comparing a golden against itself/another golden-shaped fixture,
+  // no VM session involved) fall back to the golden's own prefix so that unprefixed-env usage
+  // keeps matching exactly as before. Either is overridable for edge cases.
+  const goldenPrefix = arg('--golden-prefix') ?? GOLDEN_CAPTURE_PREFIX;
+  const actualPrefix = arg('--actual-prefix') ?? (resolveRegularObjectPrefixToken() || GOLDEN_CAPTURE_PREFIX);
+
   let goldenDiff, score, systestOut, generatedArtifacts: string[], debugLabel: string;
 
   if (actualDir) {
+    const resolvedActualDir = path.resolve(actualDir);
     const artifactNames = listGoldenArtifacts(caseId);
     if (artifactNames.length === 0) throw new Error(`No *.metadata.xml goldens in ${goldenDir(caseId)}`);
     const goldenArtifacts: Record<string, string> = {};
     const actualArtifacts: Record<string, string> = {};
+    const matchedActualFiles = new Set<string>();
     for (const name of artifactNames) {
       goldenArtifacts[name] = fs.readFileSync(path.join(goldenDir(caseId), name), 'utf8');
-      const actualFile = path.join(path.resolve(actualDir), name);
-      actualArtifacts[name] = fs.existsSync(actualFile) ? fs.readFileSync(actualFile, 'utf8') : '';
+      const actualFile = resolveActualFile(resolvedActualDir, name, goldenPrefix, actualPrefix);
+      actualArtifacts[name] = actualFile ? fs.readFileSync(actualFile, 'utf8') : '';
+      if (actualFile) matchedActualFiles.add(path.basename(actualFile));
     }
-    // Surface extra actual files (produced but not golden-expected) too.
-    for (const f of fs.readdirSync(path.resolve(actualDir)).filter(f => f.endsWith('.metadata.xml'))) {
-      if (!(f in actualArtifacts)) actualArtifacts[f] = fs.readFileSync(path.join(path.resolve(actualDir), f), 'utf8');
+    // Surface extra actual files (produced but not golden-expected, and not already
+    // matched to a golden artifact above under prefix-canonicalised filename matching) too.
+    for (const f of fs.readdirSync(resolvedActualDir).filter(f => f.endsWith('.metadata.xml'))) {
+      if (!matchedActualFiles.has(f) && !(f in actualArtifacts)) {
+        actualArtifacts[f] = fs.readFileSync(path.join(resolvedActualDir, f), 'utf8');
+      }
     }
-    ({ goldenDiff, score, systest: systestOut } = await evaluateMulti({ caseSpec, actualArtifacts, goldenArtifacts, build, systest }));
+    ({ goldenDiff, score, systest: systestOut } = await evaluateMulti({
+      caseSpec, actualArtifacts, goldenArtifacts, build, systest, goldenPrefix, actualPrefix,
+    }));
     generatedArtifacts = Object.keys(actualArtifacts);
     debugLabel = `${artifactNames.length} artifact(s) in ${actualDir}`;
   } else {
     const goldenPath = arg('--golden') ?? findGolden(caseId);
     const goldenXml = fs.readFileSync(goldenPath, 'utf8');
     const actualXml = fs.readFileSync(path.resolve(actualPath!), 'utf8');
-    ({ goldenDiff, score, systest: systestOut } = await evaluate({ caseSpec, actualXml, goldenXml, build, systest }));
+    ({ goldenDiff, score, systest: systestOut } = await evaluate({
+      caseSpec, actualXml, goldenXml, build, systest, goldenPrefix, actualPrefix,
+    }));
     generatedArtifacts = [path.basename(actualPath!)];
     debugLabel = path.basename(goldenPath);
     if (flagSet('--debug')) {
-      console.error('\n--- normalized actual ---\n' + renderNormalized(await normalizeAotXml(actualXml, caseSpec.ignore ?? [])));
+      console.error('\n--- normalized actual ---\n' + renderNormalized(await normalizeAotXml(actualXml, caseSpec.ignore ?? [], actualPrefix)));
     }
   }
 

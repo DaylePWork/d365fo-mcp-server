@@ -72,14 +72,6 @@ function shortSha(): string {
 }
 
 /** Flags that consume the following argv element as their value. */
-  const candidate = fs.readdirSync(actualDir)
-    .filter(f => f.endsWith('.metadata.xml'))
-    .find(f => canonicalizePrefix(f, actualPrefix) === canonGolden);
-  return candidate ? path.join(actualDir, candidate) : undefined;
-}
-
->>>>>>> a80f9ee (fix: replace forbidden Asl/fm-mcp prefixes with Contoso/Demo throughout)
-/** Flags that consume the following argv element as their value. */
 const VALUE_FLAGS = [
   '--golden', '--actual-dir', '--bp-warnings', '--systest', '--classification',
   '--golden-prefix', '--actual-prefix',

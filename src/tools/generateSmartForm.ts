@@ -122,6 +122,44 @@ export const generateSmartFormTool: Tool = {
 };
 
 /**
+ * Default Design/Caption for a scaffolded form (pure — no DB access).
+ *
+ * Regression (eval/corpus/runs/2026-07-06T17__L1-form-listpage__cb1b73d.json,
+ * cross-referenced by L1-form-dialog and L1-form-lookup — "a systemic
+ * scaffold default, not a one-off"): when neither an explicit `caption` nor
+ * `label` argument was given, the caption defaulted to the raw object name
+ * (e.g. "PFXDemoNoteHeaderListPage") instead of reusing the bound
+ * datasource table's own Label — even though that Label is resolvable via
+ * the bridge/symbol index and is exactly the value real D365FO forms use
+ * (raw-text captions also trip BPErrorLabelIsText and cascade into
+ * BPErrorCaptionNotDefined on unlabeled ActionPane/ButtonGroups). Reusing
+ * the bound table's Label when available is both more correct and BP-clean.
+ */
+export function resolveFormCaption(
+  explicitCaption: string | undefined,
+  explicitLabel: string | undefined,
+  tableLabel: string | undefined,
+  fallbackName: string,
+): string {
+  return explicitCaption || explicitLabel || tableLabel || fallbackName;
+}
+
+/**
+ * Look up a table's own Label reference (e.g. "@TaxTransactionInquiry:HeaderNote")
+ * from the symbol index, for use as a scaffolded form's default caption. Returns
+ * undefined when the table is unindexed or has no Label recorded — callers fall
+ * back to `label`/the raw object name via `resolveFormCaption`.
+ */
+export function lookupTableLabel(symbolIndex: XppSymbolIndex, table: string | undefined): string | undefined {
+  if (!table) return undefined;
+  try {
+    return symbolIndex.getSymbolByName?.(table, 'table')?.signature || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Pre-write check for cloneFrom: cloning copies the reference form's control
  * hierarchy and sub-patterns verbatim. If the caller asked for a different
  * pattern than the reference declares, the result will likely violate the
@@ -747,7 +785,7 @@ export async function handleGenerateSmartForm(
       formName: finalName,
       dsName: primaryDs?.name,
       dsTable: primaryDs?.table,
-      caption: caption || label || finalName,
+      caption: resolveFormCaption(caption, label, lookupTableLabel(symbolIndex, primaryDs?.table), finalName),
       gridFields,
       fieldTypes,
       linesDsName: linesDsNameResolved ?? (linesTableResolved || undefined),

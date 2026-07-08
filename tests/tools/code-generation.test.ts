@@ -889,6 +889,80 @@ describe('generate_smart_form', () => {
     expect(result?.content[0].text).toContain('MyCustomTable');
   });
 
+  it('defaults the Caption to the bound table\'s own reused Label, not the raw object name', async () => {
+    // Regression: eval/corpus/runs/2026-07-06T17__L1-form-listpage__cb1b73d.json (cross-
+    // referenced by L1-form-dialog and L1-form-lookup as "a systemic scaffold default, not
+    // a one-off"): with no explicit caption/label given, Caption used to fall back to the
+    // raw object name ("PFXDemoNoteHeaderListPage") instead of the table's real Label,
+    // even though that Label is resolvable via the symbol index.
+    const labelCtx = buildContext({
+      symbolIndex: {
+        ...ctx.symbolIndex,
+        getSymbolByName: vi.fn((name: string, type: string) =>
+          type === 'table' && name === 'ConDemoNoteHeader'
+            ? { name, type: 'table', signature: '@TaxTransactionInquiry:HeaderNote' }
+            : undefined,
+        ),
+      } as any,
+    });
+
+    const result = await handleGenerateSmartForm(
+      {
+        name: 'ConDemoNoteHeaderListPage',
+        modelName: 'MyModel',
+        dataSource: 'ConDemoNoteHeader',
+        formPattern: 'ListPage',
+      },
+      labelCtx.symbolIndex,
+    );
+    const text = result?.content[0].text as string;
+    expect(text).toContain('<Caption xmlns="">@TaxTransactionInquiry:HeaderNote</Caption>');
+    expect(text).not.toContain('<Caption xmlns="">ConDemoNoteHeaderListPage</Caption>');
+    expect(text).not.toContain('<Caption xmlns="">PFXConDemoNoteHeaderListPage</Caption>');
+  });
+
+  it('an explicit caption argument still wins over the table Label', async () => {
+    const labelCtx = buildContext({
+      symbolIndex: {
+        ...ctx.symbolIndex,
+        getSymbolByName: vi.fn((name: string, type: string) =>
+          type === 'table' && name === 'ConDemoNoteHeader'
+            ? { name, type: 'table', signature: '@TaxTransactionInquiry:HeaderNote' }
+            : undefined,
+        ),
+      } as any,
+    });
+
+    const result = await handleGenerateSmartForm(
+      {
+        name: 'ConDemoNoteHeaderListPage',
+        modelName: 'MyModel',
+        dataSource: 'ConDemoNoteHeader',
+        formPattern: 'ListPage',
+        caption: '@MyModel:ExplicitCaption',
+      },
+      labelCtx.symbolIndex,
+    );
+    const text = result?.content[0].text as string;
+    expect(text).toContain('<Caption xmlns="">@MyModel:ExplicitCaption</Caption>');
+  });
+
+  it('falls back to the (resolved) object name when the table has no indexed Label (unchanged behaviour)', async () => {
+    const result = await handleGenerateSmartForm(
+      {
+        name: 'MyUnlabeledForm',
+        modelName: 'MyModel',
+        dataSource: 'UnindexedTable',
+        formPattern: 'ListPage',
+      },
+      ctx.symbolIndex, // default mock: getSymbolByName always returns undefined
+    );
+    const text = result?.content[0].text as string;
+    // No table Label available — falls back to the resolved object name, same as before
+    // this fix (no @Label-style caption is emitted; whatever name the object resolved to).
+    expect(text).toMatch(/<Caption xmlns="">[^@<]*MyUnlabeledForm<\/Caption>/);
+  });
+
   it('warns about a STALE datasource table (indexed row, but its file no longer exists on disk)', async () => {
     // Regression: eval/corpus/runs/2026-07-06T17__L1-form-dialog__cb1b73d.json — a
     // rolled-back prior run's table left a phantom `symbols` row. The existence

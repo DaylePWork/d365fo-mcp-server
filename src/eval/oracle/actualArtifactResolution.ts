@@ -14,7 +14,7 @@ import { canonicalizePrefix } from './normalize.js';
  * actual happen to share the same EXTENSION_PREFIX session); if that misses,
  * falls back to matching on the PREFIX-CANONICALISED filename (the golden's
  * filename is itself typically a prefixed object name, e.g.
- * "AslMyContract.metadata.xml", produced under a different session than the
+ * "ContosoMyContract.metadata.xml", produced under a different session than the
  * one that generated the actual artifacts) so a whole L3/L4 multi-artifact
  * case doesn't spuriously score every artifact as missing/extra under prefix
  * drift alone.
@@ -41,8 +41,8 @@ export function resolveActualFile(
  * Regression: this used to key every entry by the GOLDEN's own filename
  * (`actualArtifacts[name] = ...` inside a `for (const name of
  * artifactNames)` loop) even when the resolved actual file had a DIFFERENT
- * literal prefix (e.g. golden "AslMyContract.metadata.xml" resolved to actual
- * file "FmMcpMyContract.metadata.xml" under prefix-agnostic matching —
+ * literal prefix (e.g. golden "ContosoMyContract.metadata.xml" resolved to actual
+ * file "DemoMyContract.metadata.xml" under prefix-agnostic matching —
  * `resolveActualFile`'s whole point). `evaluateMulti`/`normalizeMultiArtifact`
  * then canonicalises each artifact KEY with `actualPrefix` — but a key that's
  * still the GOLDEN's literal name doesn't contain `actualPrefix` at all, so

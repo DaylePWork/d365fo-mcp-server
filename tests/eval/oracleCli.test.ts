@@ -34,66 +34,66 @@ describe('buildActualArtifactsMap', () => {
   });
 
   it('keys a resolved actual file by ITS OWN basename, not the golden filename, when prefixes differ', () => {
-    // Golden expects "AslMyContract.metadata.xml"; the actual VM session ran under
-    // a DIFFERENT EXTENSION_PREFIX ("FmMcp") and produced "FmMcpMyContract.metadata.xml".
-    const actualContent = '<AxClass><Name>FmMcpMyContract</Name></AxClass>';
-    fs.writeFileSync(path.join(actualDir, 'FmMcpMyContract.metadata.xml'), actualContent, 'utf8');
+    // Golden expects "ContosoMyContract.metadata.xml"; the actual VM session ran under
+    // a DIFFERENT EXTENSION_PREFIX ("Demo") and produced "DemoMyContract.metadata.xml".
+    const actualContent = '<AxClass><Name>DemoMyContract</Name></AxClass>';
+    fs.writeFileSync(path.join(actualDir, 'DemoMyContract.metadata.xml'), actualContent, 'utf8');
 
     const { actualArtifacts, matchedActualFiles } = buildActualArtifactsMap(
       actualDir,
-      ['AslMyContract.metadata.xml'],
-      'Asl',
-      'FmMcp',
+      ['ContosoMyContract.metadata.xml'],
+      'Contoso',
+      'Demo',
     );
 
-    // The regression: this used to be keyed 'AslMyContract.metadata.xml' (the golden's
+    // The regression: this used to be keyed 'ContosoMyContract.metadata.xml' (the golden's
     // name), which desyncs prefix-canonicalisation downstream. Must be the actual
     // file's own basename instead.
-    expect(Object.keys(actualArtifacts)).toEqual(['FmMcpMyContract.metadata.xml']);
-    expect(actualArtifacts['FmMcpMyContract.metadata.xml']).toBe(actualContent);
-    expect(actualArtifacts['AslMyContract.metadata.xml']).toBeUndefined();
-    expect(matchedActualFiles.has('FmMcpMyContract.metadata.xml')).toBe(true);
+    expect(Object.keys(actualArtifacts)).toEqual(['DemoMyContract.metadata.xml']);
+    expect(actualArtifacts['DemoMyContract.metadata.xml']).toBe(actualContent);
+    expect(actualArtifacts['ContosoMyContract.metadata.xml']).toBeUndefined();
+    expect(matchedActualFiles.has('DemoMyContract.metadata.xml')).toBe(true);
   });
 
   it('keeps the golden filename as the key (empty content) when no actual file resolves at all', () => {
     const { actualArtifacts, matchedActualFiles } = buildActualArtifactsMap(
       actualDir, // empty directory — nothing to match
-      ['AslMissingArtifact.metadata.xml'],
-      'Asl',
-      'FmMcp',
+      ['ContosoMissingArtifact.metadata.xml'],
+      'Contoso',
+      'Demo',
     );
-    expect(actualArtifacts).toEqual({ 'AslMissingArtifact.metadata.xml': '' });
+    expect(actualArtifacts).toEqual({ 'ContosoMissingArtifact.metadata.xml': '' });
     expect(matchedActualFiles.size).toBe(0);
   });
 
   it('a direct filename match (same prefix session) keys by that same name', () => {
-    const content = '<AxClass><Name>AslMyContract</Name></AxClass>';
-    fs.writeFileSync(path.join(actualDir, 'AslMyContract.metadata.xml'), content, 'utf8');
+    const content = '<AxClass><Name>ContosoMyContract</Name></AxClass>';
+    fs.writeFileSync(path.join(actualDir, 'ContosoMyContract.metadata.xml'), content, 'utf8');
 
     const { actualArtifacts, matchedActualFiles } = buildActualArtifactsMap(
       actualDir,
-      ['AslMyContract.metadata.xml'],
-      'Asl',
-      'Asl',
+      ['ContosoMyContract.metadata.xml'],
+      'Contoso',
+      'Contoso',
     );
-    expect(actualArtifacts).toEqual({ 'AslMyContract.metadata.xml': content });
-    expect(matchedActualFiles.has('AslMyContract.metadata.xml')).toBe(true);
+    expect(actualArtifacts).toEqual({ 'ContosoMyContract.metadata.xml': content });
+    expect(matchedActualFiles.has('ContosoMyContract.metadata.xml')).toBe(true);
   });
 
   it('handles multiple golden artifacts independently, some matched under a different prefix, some missing', () => {
-    fs.writeFileSync(path.join(actualDir, 'FmMcpContract.metadata.xml'), 'CONTRACT', 'utf8');
+    fs.writeFileSync(path.join(actualDir, 'DemoContract.metadata.xml'), 'CONTRACT', 'utf8');
     // No file for "Controller" at all.
 
     const { actualArtifacts, matchedActualFiles } = buildActualArtifactsMap(
       actualDir,
-      ['AslContract.metadata.xml', 'AslController.metadata.xml'],
-      'Asl',
-      'FmMcp',
+      ['ContosoContract.metadata.xml', 'ContosoController.metadata.xml'],
+      'Contoso',
+      'Demo',
     );
     expect(actualArtifacts).toEqual({
-      'FmMcpContract.metadata.xml': 'CONTRACT',
-      'AslController.metadata.xml': '',
+      'DemoContract.metadata.xml': 'CONTRACT',
+      'ContosoController.metadata.xml': '',
     });
-    expect(matchedActualFiles).toEqual(new Set(['FmMcpContract.metadata.xml']));
+    expect(matchedActualFiles).toEqual(new Set(['DemoContract.metadata.xml']));
   });
 });

@@ -12,7 +12,7 @@
  *     --bp-warnings <n>   number of BP warnings (default: 0)
  *     --systest <file>    text file with the `run_systest_class` output (runtime oracle)
  *     --classification <C> rubric class for the record (default: derived)
- *     --golden-prefix <p> EXTENSION_PREFIX the golden was captured under (default: GOLDEN_CAPTURE_PREFIX, "Asl")
+ *     --golden-prefix <p> EXTENSION_PREFIX the golden was captured under (default: GOLDEN_CAPTURE_PREFIX, "Contoso")
  *     --actual-prefix <p> EXTENSION_PREFIX the actual was produced under (default: read from THIS
  *                         process's EXTENSION_PREFIX env var — the session that ran the case)
  *     --write             append a corpus record to eval/corpus/runs/

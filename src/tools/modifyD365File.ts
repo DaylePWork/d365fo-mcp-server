@@ -1127,7 +1127,7 @@ export async function modifyD365FileTool(request: CallToolRequest, context: XppS
 
     // 3b. Derive the authoritative object name from the resolved file path.
     //     The caller may pass objectName="RentEquipment" while the file on disk
-    //     is AslRentEquipment.xml (auto-prefixed at create time). The C# bridge
+    //     is ContosoRentEquipment.xml (auto-prefixed at create time). The C# bridge
     //     resolves objects by name from its metadata model — if the name doesn't
     //     match the file it will always return null, regardless of refreshes.
     //     Use path.win32.basename so Windows backslash paths are handled correctly
@@ -1908,7 +1908,7 @@ async function findD365File(
 
   // Resolve by the given name first; if that misses, retry once with the model
   // prefix applied. create_d365fo_file auto-prefixes new object names (e.g.
-  // "RentEquipmentTable" → "AslRentEquipmentTable"), so a modify call with the bare
+  // "RentEquipmentTable" → "ContosoRentEquipmentTable"), so a modify call with the bare
   // name would otherwise fail to locate the file. The bridge object name is then
   // re-derived from the resolved file's basename, so the prefixed name flows through.
   const direct = await resolveD365FileByName(symbolIndex, objectType, objectName, modelName, packagePath);

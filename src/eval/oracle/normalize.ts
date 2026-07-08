@@ -33,15 +33,15 @@ const DEFAULT_IGNORES = ['**/ModelSaveInfo', '**/ModelSaveInfo/**', '**/@Id', '*
  * under THIS prefix — it is not re-derived per run.
  *
  * A later eval run is free to configure ANY EXTENSION_PREFIX for its sandbox
- * session (e.g. "FmMcp") — `d365fo_file`/`generate_object` correctly apply the
+ * session (e.g. "Demo") — `d365fo_file`/`generate_object` correctly apply the
  * CURRENT session's prefix to every new object per their documented contract
- * (src/utils/modelClassifier.ts). An object named "FmMcpXyzNoteSubject" and a
- * golden named "AslXyzNoteSubject" describe the SAME object under two
+ * (src/utils/modelClassifier.ts). An object named "DemoXyzNoteSubject" and a
+ * golden named "ContosoXyzNoteSubject" describe the SAME object under two
  * different prefix sessions — that is not a semantic difference, and must not
  * fail `golden_match` (see the corpus record that surfaced this:
  * eval/corpus/runs/2026-07-06T10__L0-edt-basic__4fafcd8.json).
  */
-export const GOLDEN_CAPTURE_PREFIX = 'Asl';
+export const GOLDEN_CAPTURE_PREFIX = 'Contoso';
 
 /** Escape a literal string for embedding in a RegExp. */
 function escapeRegExp(s: string): string {
@@ -62,7 +62,7 @@ const PREFIX_PLACEHOLDER = 'PFX';
  * immediately after a non-alphanumeric character — `.`, `(`, `,`, `_`,
  * whitespace, …) AND require the prefix to be immediately followed by an
  * uppercase letter (the PascalCase continuation of the object's own name,
- * e.g. `AslXyzNoteSubject`, `CustGroup.AslExtension`, `classStr(AslXyzNoteSubject)`).
+ * e.g. `ContosoXyzNoteSubject`, `CustGroup.ContosoExtension`, `classStr(ContosoXyzNoteSubject)`).
  * This keeps the substitution narrow: an incidental occurrence of the prefix
  * text inside unrelated free-form content (e.g. a label) is left alone.
  */
@@ -320,7 +320,7 @@ export function renderNormalized(map: Map<string, string>): string {
  *
  * `artifacts` keys are filenames (e.g. "MyContract.metadata.xml") — stable,
  * case-author-chosen identifiers, not full paths. The filename itself is
- * typically the prefixed object name (e.g. "AslMyContract.metadata.xml"), so
+ * typically the prefixed object name (e.g. "ContosoMyContract.metadata.xml"), so
  * it is canonicalised with `prefix` too (see `normalizeAotXml`) — otherwise a
  * golden captured under one prefix and an actual produced under another would
  * combine under different `<filename>::` keys and false-mismatch wholesale.

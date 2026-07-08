@@ -567,7 +567,7 @@ describe('XmlTemplateGenerator.splitXppClassSource', () => {
 //
 // Regression for eval/corpus/runs/2026-07-06T16__L1-class-basic__73707ff.json
 // (classification: TOOL_DEFECT, build.succeeded: false): the caller passed an
-// already-fully-resolved objectName ("FmMcpXyzNoteFormatter") but sourceCode's
+// already-fully-resolved objectName ("ContosoXyzNoteFormatter") but sourceCode's
 // own `class XyzNoteFormatter` used the bare, unprefixed name. Because
 // objectName itself needed no prefix-normalizing (finalObjectName ===
 // args.objectName), the existing xmlContent-only "CRITICAL FIX" guard in
@@ -585,20 +585,20 @@ describe('XmlTemplateGenerator.normalizeSelfReferenceName', () => {
       },
     ];
 
-    const result = XmlTemplateGenerator.normalizeSelfReferenceName('FmMcpXyzNoteFormatter', declaration, methods);
+    const result = XmlTemplateGenerator.normalizeSelfReferenceName('ContosoXyzNoteFormatter', declaration, methods);
 
-    expect(result.declaration).toContain('public class FmMcpXyzNoteFormatter');
-    expect(result.declaration).not.toMatch(/(?<!FmMcp)XyzNoteFormatter/);
+    expect(result.declaration).toContain('public class ContosoXyzNoteFormatter');
+    expect(result.declaration).not.toMatch(/(?<!Contoso)XyzNoteFormatter/);
     const construct = result.methods.find(m => m.name === 'construct')!;
-    expect(construct.source).toContain('public static FmMcpXyzNoteFormatter construct');
-    expect(construct.source).toContain('return new FmMcpXyzNoteFormatter(_prefix);');
+    expect(construct.source).toContain('public static ContosoXyzNoteFormatter construct');
+    expect(construct.source).toContain('return new ContosoXyzNoteFormatter(_prefix);');
     expect(construct.source).not.toMatch(/\bXyzNoteFormatter\b/);
   });
 
   it('is a no-op when the declared name already matches className', () => {
-    const declaration = 'public class FmMcpFoo\n{\n}';
+    const declaration = 'public class ContosoFoo\n{\n}';
     const methods = [{ name: 'run', source: 'public void run()\n    {\n    }' }];
-    const result = XmlTemplateGenerator.normalizeSelfReferenceName('FmMcpFoo', declaration, methods);
+    const result = XmlTemplateGenerator.normalizeSelfReferenceName('ContosoFoo', declaration, methods);
     expect(result.declaration).toBe(declaration);
     expect(result.methods).toEqual(methods);
   });
@@ -607,12 +607,12 @@ describe('XmlTemplateGenerator.normalizeSelfReferenceName', () => {
     const sourceCode =
       'public class XyzNoteFormatter\n{\n    str prefix;\n}\n\n' +
       'public static XyzNoteFormatter construct(str _prefix)\n{\n    return new XyzNoteFormatter(_prefix);\n}';
-    const xml = XmlTemplateGenerator.generateAxClassXml('FmMcpXyzNoteFormatter', sourceCode);
+    const xml = XmlTemplateGenerator.generateAxClassXml('ContosoXyzNoteFormatter', sourceCode);
 
-    expect(xml).toContain('<Name>FmMcpXyzNoteFormatter</Name>');
-    expect(xml).toContain('public class FmMcpXyzNoteFormatter');
-    expect(xml).toContain('public static FmMcpXyzNoteFormatter construct');
-    expect(xml).toContain('return new FmMcpXyzNoteFormatter(_prefix);');
+    expect(xml).toContain('<Name>ContosoXyzNoteFormatter</Name>');
+    expect(xml).toContain('public class ContosoXyzNoteFormatter');
+    expect(xml).toContain('public static ContosoXyzNoteFormatter construct');
+    expect(xml).toContain('return new ContosoXyzNoteFormatter(_prefix);');
     // No leftover reference to the stale, unprefixed self-name anywhere in the XML.
     expect(xml).not.toMatch(/\bXyzNoteFormatter\b/);
   });
@@ -621,12 +621,12 @@ describe('XmlTemplateGenerator.normalizeSelfReferenceName', () => {
     const sourceCode =
       'class XyzNoteFormatter\n{\n    str prefix;\n}\n\n' +
       'public static XyzNoteFormatter construct(str _prefix)\n{\n    return new XyzNoteFormatter(_prefix);\n}';
-    const parsed = XmlTemplateGenerator.parseSourceForBridge(sourceCode, 'FmMcpXyzNoteFormatter');
+    const parsed = XmlTemplateGenerator.parseSourceForBridge(sourceCode, 'ContosoXyzNoteFormatter');
 
-    expect(parsed.declaration).toContain('class FmMcpXyzNoteFormatter');
+    expect(parsed.declaration).toContain('class ContosoXyzNoteFormatter');
     const construct = parsed.methods.find(m => m.name === 'construct')!;
-    expect(construct.source).toContain('FmMcpXyzNoteFormatter construct');
-    expect(construct.source).toContain('new FmMcpXyzNoteFormatter(_prefix)');
+    expect(construct.source).toContain('ContosoXyzNoteFormatter construct');
+    expect(construct.source).toContain('new ContosoXyzNoteFormatter(_prefix)');
   });
 
   it('parseSourceForBridge without className (legacy callers) leaves self-references untouched', () => {
@@ -681,12 +681,12 @@ describe('XmlTemplateGenerator security duty/role generators', () => {
 describe('XmlTemplateGenerator security duty/role EXTENSION generators', () => {
   it('emits AxSecurityPrivilegeReference entries on a duty extension', () => {
     const xml = XmlTemplateGenerator.generateAxSecurityDutyExtensionXml(
-      'SalesOrderProgressInquire.AslExtension',
-      { privileges: ['AslSalesPostingAuditLogView'] },
+      'SalesOrderProgressInquire.ContosoExtension',
+      { privileges: ['ContosoSalesPostingAuditLogView'] },
     );
     expect(xml).toContain('<AxSecurityDutyExtension');
-    expect(xml).toContain('<Name>SalesOrderProgressInquire.AslExtension</Name>');
-    expect(xml).toContain('<AxSecurityPrivilegeReference>\n\t\t\t<Name>AslSalesPostingAuditLogView</Name>');
+    expect(xml).toContain('<Name>SalesOrderProgressInquire.ContosoExtension</Name>');
+    expect(xml).toContain('<AxSecurityPrivilegeReference>\n\t\t\t<Name>ContosoSalesPostingAuditLogView</Name>');
     expect(xml).toContain('<PropertyModifications />');
     // No <Label> — duty extensions don't carry one (only the base duty does).
     expect(xml).not.toContain('<Label>');
@@ -707,11 +707,11 @@ describe('XmlTemplateGenerator security duty/role EXTENSION generators', () => {
 
   it('emits duty + privilege references on a role extension', () => {
     const xml = XmlTemplateGenerator.generateAxSecurityRoleExtensionXml(
-      'SystemUser.AslExtension',
+      'SystemUser.ContosoExtension',
       { duties: ['MyDuty1'], privileges: ['MyPrivilege1'] },
     );
     expect(xml).toContain('<AxSecurityRoleExtension');
-    expect(xml).toContain('<Name>SystemUser.AslExtension</Name>');
+    expect(xml).toContain('<Name>SystemUser.ContosoExtension</Name>');
     expect(xml).toContain('<DirectAccessPermissions />');
     expect(xml).toContain('<AxSecurityDutyReference>\n\t\t\t<Name>MyDuty1</Name>');
     expect(xml).toContain('<AxSecurityPrivilegeReference>\n\t\t\t<Name>MyPrivilege1</Name>');
@@ -845,9 +845,9 @@ describe('selectUnbuildableEdts (scaffold pre-write gate)', () => {
 
   it('allows a same-session EDT that is on disk but unindexed (xppc reads disk)', () => {
     // Separator-agnostic so this holds on both Windows (path.join → "\") and Linux CI ("/").
-    const onDisk = (p: string) => p.replace(/\\/g, '/').endsWith('AxEdt/AslSessionEdt.xml');
+    const onDisk = (p: string) => p.replace(/\\/g, '/').endsWith('AxEdt/ContosoSessionEdt.xml');
     const blocked = selectUnbuildableEdts(
-      [{ field: 'A', edt: 'AslSessionEdt' }, { field: 'B', edt: 'GhostEdt' }],
+      [{ field: 'A', edt: 'ContosoSessionEdt' }, { field: 'B', edt: 'GhostEdt' }],
       modelDir,
       onDisk,
     );

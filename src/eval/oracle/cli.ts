@@ -12,7 +12,7 @@
  *     --bp-warnings <n>   number of BP warnings (default: 0)
  *     --systest <file>    text file with the `run_systest_class` output (runtime oracle)
  *     --classification <C> rubric class for the record (default: derived)
- *     --golden-prefix <p> EXTENSION_PREFIX the golden was captured under (default: GOLDEN_CAPTURE_PREFIX, "Asl")
+ *     --golden-prefix <p> EXTENSION_PREFIX the golden was captured under (default: GOLDEN_CAPTURE_PREFIX, "Contoso")
  *     --actual-prefix <p> EXTENSION_PREFIX the actual was produced under (default: read from THIS
  *                         process's EXTENSION_PREFIX env var — the session that ran the case)
  *     --write             append a corpus record to eval/corpus/runs/
@@ -71,6 +71,14 @@ function shortSha(): string {
   catch { return 'unknown'; }
 }
 
+/** Flags that consume the following argv element as their value. */
+  const candidate = fs.readdirSync(actualDir)
+    .filter(f => f.endsWith('.metadata.xml'))
+    .find(f => canonicalizePrefix(f, actualPrefix) === canonGolden);
+  return candidate ? path.join(actualDir, candidate) : undefined;
+}
+
+>>>>>>> a80f9ee (fix: replace forbidden Asl/fm-mcp prefixes with Contoso/Demo throughout)
 /** Flags that consume the following argv element as their value. */
 const VALUE_FLAGS = [
   '--golden', '--actual-dir', '--bp-warnings', '--systest', '--classification',

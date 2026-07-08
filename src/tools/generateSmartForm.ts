@@ -412,7 +412,7 @@ export async function handleGenerateSmartForm(
         add(ln.replace(/Table(Lines?)$/i, 'Line'));
         add(ln.replace(/Table(Lines?)$/i, '$1'));
         if (dataSource) {
-          const base = dataSource.replace(/Table$/i, ''); // header base, e.g. AslRentAgreement
+          const base = dataSource.replace(/Table$/i, ''); // header base, e.g. ContosoRentAgreement
           add(`${base}Line`);
           add(`${base}Lines`);
           add(`${base}TransLine`);
@@ -456,8 +456,8 @@ export async function handleGenerateSmartForm(
 
     // Datasource name: by D365FO convention it equals the (corrected) table name.
     // Honor an explicit linesDataSource ONLY when it is a genuinely distinct name —
-    // not just the wrong pluralized guess (e.g. "AslRentAgreementLines") that the
-    // table auto-correction above already resolved to "AslRentAgreementLine".
+    // not just the wrong pluralized guess (e.g. "ContosoRentAgreementLines") that the
+    // table auto-correction above already resolved to "ContosoRentAgreementLine".
     // Otherwise the form ends up with a datasource named after a non-existent table.
     // Local const captures the (possibly auto-corrected) table name so TS keeps the
     // non-undefined narrowing through the reassignments above.

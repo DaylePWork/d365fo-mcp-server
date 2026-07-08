@@ -841,6 +841,32 @@ export async function handleGenerateSmartForm(
     }
   }
 
+  // Several patterns (SimpleList's Grid, and the FieldsFieldGroups Group control
+  // on SimpleListDetails/DetailsMaster) bind <DataGroup>Overview</DataGroup> —
+  // this ONLY builds if the datasource table has a matching AxTableFieldGroup
+  // named "Overview". A brand-new/custom table created earlier in the same
+  // session almost never has one yet, so the very next build fails with
+  // "Field group 'Overview' does not exist" — a confusing failure with no clue
+  // back to this control. Confirmed on this exact scaffold path (corpus:
+  // eval/corpus/runs/2026-07-07T11__L3-form-add-datasource-lines__cb1b73d.json,
+  // eval/corpus/runs/2026-07-07T15__L4-master-security-slice__cb1b73d.json).
+  // This tool has no bridge/table-write access here to auto-create the field
+  // group (and a prior investigation found that even a same-session
+  // add-field-group call did not reliably become visible to xppc's build —
+  // suspected metadata-provider staleness, unconfirmed without a live VM
+  // re-check) — surface the dependency loudly instead of failing silently.
+  if (/<DataGroup>Overview<\/DataGroup>/.test(xml)) {
+    const overviewDsTable =
+      xml.match(/<AxFormDataSource[^>]*>\s*<Name>[^<]+<\/Name>\s*<Table>([^<]+)<\/Table>/)?.[1]
+      ?? primaryDs?.table ?? primaryDs?.name ?? dataSources[0]?.table;
+    cloneNotes +=
+      `\n   ⚠️ This form references a field group named "Overview" on ` +
+      `${overviewDsTable ?? 'the datasource table'} — verify it already exists, or add one BEFORE ` +
+      `building via d365fo_file(action="modify", objectType="table", objectName="${overviewDsTable ?? '<table>'}", ` +
+      `operation="add-field-group", fieldGroupName="Overview", fieldGroupFields=[...]). Without it the ` +
+      `build fails with "Field group 'Overview' does not exist".`;
+  }
+
   console.log(`[generateSmartForm] Generated XML (${xml.length} bytes)`);
 
   // Self-test: generated XML must conform to its declared pattern.

@@ -911,6 +911,51 @@ describe('generate_smart_form', () => {
     expect(text).toContain('Generated deterministically from the form-pattern catalog');
     expect(text).not.toContain('No dedicated template');
   });
+
+  it('DetailsMaster warns that the Overview FastTab needs a matching table field group', async () => {
+    // Regression: eval/corpus/runs/2026-07-07T11__L3-form-add-datasource-lines__cb1b73d.json,
+    // eval/corpus/runs/2026-07-07T15__L4-master-security-slice__cb1b73d.json — DetailsMaster's
+    // FieldsFieldGroups TabPage always emits <DataGroup>Overview</DataGroup> on its inner Group
+    // control, but the scaffold never creates (or checks for) a matching AxTableFieldGroup named
+    // "Overview" on the bound table. A brand-new custom table almost never has one, so the very
+    // next build silently fails with "Field group 'Overview' does not exist" and no pointer back
+    // to this control. This tool has no table-write access to auto-create the field group (and a
+    // prior investigation found even a same-session add-field-group call unreliable against
+    // xppc's build — unconfirmed without a live VM re-check), so it must surface the dependency
+    // loudly instead.
+    const result = await handleGenerateSmartForm(
+      {
+        name: 'MyDetailsForm',
+        modelName: 'MyModel',
+        dataSource: 'MyCustomTable',
+        formPattern: 'DetailsMaster',
+      },
+      ctx.symbolIndex,
+    );
+    const text = result?.content[0].text as string;
+    expect(text).toContain('<DataGroup>Overview</DataGroup>');
+    expect(text).toContain('references a field group named "Overview"');
+    expect(text).toContain('MyCustomTable');
+    expect(text).toContain('add-field-group');
+  });
+
+  it('Dialog (no DataGroup="Overview" anywhere in its template) does NOT emit the field-group warning', async () => {
+    // Unlike SimpleList/SimpleListDetails/DetailsMaster (all of which reference a field group
+    // named "Overview" somewhere — Grid.DataGroup or the FieldsFieldGroups Group.DataGroup),
+    // Dialog's template has no such reference, so the warning must not fire unconditionally.
+    const result = await handleGenerateSmartForm(
+      {
+        name: 'MyDialogForm',
+        modelName: 'MyModel',
+        dataSource: 'MyCustomTable',
+        formPattern: 'Dialog',
+      },
+      ctx.symbolIndex,
+    );
+    const text = result?.content[0].text as string;
+    expect(text).not.toContain('<DataGroup>Overview</DataGroup>');
+    expect(text).not.toContain('references a field group named "Overview"');
+  });
 });
 
 // ─── suggest_edt ─────────────────────────────────────────────────────────────

@@ -140,7 +140,79 @@ class MyProcessContract
 }`,
       },
     ],
-    related: ['transactions', 'error-handling'],
+    related: ['transactions', 'error-handling', 'custom-service-list-contract'],
+  },
+
+  // ── Custom Service — List Collection parm Pattern ───────────────────────
+  {
+    id: 'custom-service-list-contract',
+    title: 'Custom Service — DataContract List Collection parm Method',
+    keywords: [
+      'custom service', 'aif', 'list', 'datacollection', 'aifcollectiontype',
+      'datamember', 'parm method', 'envelope contract', 'inbound service',
+      'serialisation', 'deserialisation', 'list collection',
+    ],
+    summary:
+      'When a [DataContractAttribute] envelope class exposes a List of typed item contracts via a parm method ' +
+      '(e.g. for a custom AIF/service inbound or outbound envelope), four attributes in a specific order are ' +
+      'mandatory. Omitting any one of them causes SILENT deserialisation failure at runtime — no compiler error, ' +
+      'no BP warning.',
+    rules: [
+      'Naming: member variable = <purpose>List, parm method = parm<Purpose>List, parameter = _<memberVariable>, DataMemberAttribute value = PascalCase of member variable',
+      'All four attributes are required in this exact order: DataMemberAttribute, DataCollectionAttribute, AifCollectionTypeAttribute (parameter), AifCollectionTypeAttribute (return)',
+      'DataCollectionAttribute declares element type for AIF schema generation',
+      'AifCollectionTypeAttribute with the parameter name declares element type when deserialising the inbound value',
+      'AifCollectionTypeAttribute with "return" declares element type when serialising the return value',
+      'Both AifCollectionTypeAttribute entries are ALWAYS required — omitting either causes silent deserialisation failure',
+      'Item contracts (scalar fields) use ONLY DataMemberAttribute — no collection attributes',
+    ],
+    examples: [
+      {
+        label: 'Envelope contract — List parm method (all 4 attributes required)',
+        code: `[DataContractAttribute]
+class MyRequestEnvelopeContract
+{
+    List requestList;
+
+    [DataMemberAttribute('RequestList'),
+     DataCollectionAttribute(Types::Class, classStr(MyRequestItemContract)),
+     AifCollectionTypeAttribute('_requestList', Types::Class, classStr(MyRequestItemContract)),
+     AifCollectionTypeAttribute('return',       Types::Class, classStr(MyRequestItemContract))]
+    public List parmRequestList(List _requestList = requestList)
+    {
+        requestList = _requestList;
+        return requestList;
+    }
+}`,
+      },
+      {
+        label: 'Item contract — scalar parm method (DataMemberAttribute only)',
+        code: `[DataContractAttribute]
+class MyRequestItemContract
+{
+    InventLocationId warehouse;
+    Qty              quantity;
+
+    [DataMemberAttribute('Warehouse'),
+     SysOperationLabelAttribute(literalStr("@SYS14782")),
+     SysOperationDisplayOrderAttribute('1')]
+    public InventLocationId parmWarehouse(InventLocationId _warehouse = warehouse)
+    {
+        warehouse = _warehouse;
+        return warehouse;
+    }
+
+    [DataMemberAttribute('Quantity'),
+     SysOperationDisplayOrderAttribute('2')]
+    public Qty parmQuantity(Qty _quantity = quantity)
+    {
+        quantity = _quantity;
+        return quantity;
+    }
+}`,
+      },
+    ],
+    related: ['sysoperation'],
   },
 
   // ── Transactions ────────────────────────────────────────────────────────

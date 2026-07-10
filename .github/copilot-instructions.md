@@ -53,21 +53,35 @@ PowerShell / any terminal command **WILL HANG** in VS 2022 / VS 2026 MCP integra
 
 2. **`d365fo_file` (action=create/modify) applies immediately** (no dry-run / preview). Describe the change in chat and wait for explicit user confirmation ("apply", "ok", "yes") before calling. Revert with `undo_last_modification` (or pass `createBackup=true` to keep a `.bak`).
 3. **Never** use `replace_string_in_file`, `edit_file`, `apply_patch`, or any built-in file-write tool on `.xml` or `.xpp` files — **not even as a fallback** when `d365fo_file(action="modify")` fails. These bypass `IMetadataProvider` and corrupt VS 2022's in-memory model. If `d365fo_file(action="modify")` errors, STOP and report the error verbatim.
+4. **`overwrite=true` is for full XML replacement only** — pass it with `xmlContent` to rewrite an entire object. Never use it for incremental changes (adding a field, method, index, etc.); use `d365fo_file(action="modify")` with the appropriate `operation` instead.
+
+### Unsupported AOT object types
+
+5. Some AOT types are **not supported** by `d365fo_file(action="create")` — notably `AxService` and `AxServiceGroup`. When asked to create one:
+   - **Never** use `create_file`, `replace_string_in_file`, or terminal to write raw AOT XML.
+   - **Never** pass a workaround `objectType` (e.g. `"class"`) with raw XML for a Service.
+   - **Always** instruct the user to create the object manually in Visual Studio via **Add → New Item**.
+
+   | AOT Type | VS Menu Path |
+   |---|---|
+   | `AxService` | Add → New Item → Services → Service |
+   | `AxServiceGroup` | Add → New Item → Services → Service Group |
 
 ### Build automation
 
-4. Never run `build_d365fo_project()` automatically — only on explicit user request ("build", "compile", "check errors").
+6. Never run `build_d365fo_project()` automatically — only on explicit user request ("build", "compile", "check errors").
 
 ### X++ correctness (BP-clean code)
 
-5. Never copy default parameter values into CoC wrapper signatures.
-6. Never use `today()` — use `DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone())`.
-7. Never use hardcoded strings in `Info()` / `warning()` / `error()` — use `@Model:Label` references.
-8. Call `labels(action="search")` before `labels(action="create")` — reuse existing labels.
+7. Never copy default parameter values into CoC wrapper signatures.
+8. Never use `today()` — use `DateTimeUtil::getToday(DateTimeUtil::getUserPreferredTimeZone())`.
+9. Never use hardcoded strings in `Info()` / `warning()` / `error()` — use `@Model:Label` references.
+10. Call `labels(action="search")` before `labels(action="create")` — reuse existing labels.
+11. **Never call `[SysObsolete]`-attributed methods** — when `get_method` returns source with `[SysObsolete]`, read the attribute message for the replacement and use that instead.
 
 ### Extension naming
 
-9. Extension naming follows `EXTENSION_NAMING_STYLE` (see `get_workspace_info`):
+12. Extension naming follows `EXTENSION_NAMING_STYLE` (see `get_workspace_info`):
    - `prefix` (default) → class `{Target}{Prefix}_Extension`, element `{Target}.{Prefix}Extension`
    - `model-name` → class `{Target}_{ModelName}_Extension`, element `{Target}.{ModelName}`
 
@@ -75,9 +89,9 @@ PowerShell / any terminal command **WILL HANG** in VS 2022 / VS 2026 MCP integra
 
 ### Reuse & diff safety
 
-10. **Reuse before creating** — `prepare(mode="change")` lists existing CoC wrappers and event handlers. If an extension or handler class in the custom model already owns the target, add the new method there. Never create a parallel feature-named class (`<Target>_<Feature>_Extension`, `<Form>_<Feature>_EH`) unless the user explicitly asks for a separate class. The suffix comes from `EXTENSION_NAMING_STYLE` / existing artifacts — never from feature, ticket, or customer names; if it cannot be derived, ask.
-11. **The post-write diff must be additive or narrowly targeted** — verify via `review_workspace_changes` (or re-read with `get_*_info`) that no unrelated XML nodes (`<DataSources>`, `<Controls>`, methods, pattern metadata) disappeared. If they did, the edit failed: `undo_last_modification`.
-12. **An example form named by the user is a pattern contract** — keep its pattern family and required scaffolding (datasources, ActionPane/Tab/grid/QuickFilter); missing pattern elements are a failed generation even if the XML is well-formed.
+13. **Reuse before creating** — `prepare(mode="change")` lists existing CoC wrappers and event handlers. If an extension or handler class in the custom model already owns the target, add the new method there. Never create a parallel feature-named class (`<Target>_<Feature>_Extension`, `<Form>_<Feature>_EH`) unless the user explicitly asks for a separate class. The suffix comes from `EXTENSION_NAMING_STYLE` / existing artifacts — never from feature, ticket, or customer names; if it cannot be derived, ask.
+14. **The post-write diff must be additive or narrowly targeted** — verify via `review_workspace_changes` (or re-read with `get_*_info`) that no unrelated XML nodes (`<DataSources>`, `<Controls>`, methods, pattern metadata) disappeared. If they did, the edit failed: `undo_last_modification`.
+15. **An example form named by the user is a pattern contract** — keep its pattern family and required scaffolding (datasources, ActionPane/Tab/grid/QuickFilter); missing pattern elements are a failed generation even if the XML is well-formed.
 
 ## Full Instructions
 

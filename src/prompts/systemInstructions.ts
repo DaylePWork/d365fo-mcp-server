@@ -127,6 +127,7 @@ You are an AI assistant with access to D365FO MCP tools, assisting with Dynamics
 | \`coc-authoring\` / \`coc\` | CoC non-negotiables, Hookable/Wrappable, form CoC |
 | \`event-handlers\` | DataEventHandler/SubscribesTo, handler class conventions |
 | \`sysoperation\` | Batch: DataContract + Service + Controller (replaces RunBase) |
+| \`custom-service-list-contract\` | DataContract List parm: required 4-attribute stack (DataCollectionAttribute + AifCollectionTypeAttribute ×2) for silent-failure-free List serialisation |
 | \`bp-rules\` | BP checker rules: labels, EDT relations, alternate keys, XML doc, EDT-extension limits |
 | \`number-sequences\` | NumberSeq setup and runtime consumption |
 | \`workflow\` | WorkflowDocument/Type/Approval structure |

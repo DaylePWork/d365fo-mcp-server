@@ -3756,7 +3756,13 @@ export async function handleCreateD365File(
 
     // Pass actualModelName so the model-name naming style can use it as the extension
     // token. For the default prefix style (or non-extension objects) it is ignored.
-    let finalObjectName = applyObjectPrefix(effectiveObjectName, objectPrefix, actualModelName);
+    // When EXTENSION_PREFIX is blank but EXTENSION_NAMING_STYLE=model-name, applyObjectPrefix
+    // would bail early (prefix='') and leave extension names bare (e.g. "SalesTable.Extension").
+    // In that case, fall back to actualModelName as the prefix so the model-name branches
+    // inside applyObjectPrefix are reachable and produce e.g. "SalesTable.DXC".
+    const effectivePrefix =
+      objectPrefix || (namingStyle === 'model-name' && actualModelName ? actualModelName : '');
+    let finalObjectName = applyObjectPrefix(effectiveObjectName, effectivePrefix, actualModelName);
     // Trailing suffix (EXTENSION_SUFFIX) applies to NEW objects only — never to
     // extension elements/classes. (For the prefix style applyObjectSuffix already
     // skips _Extension and dot-notation "…Extension" names; this guard additionally

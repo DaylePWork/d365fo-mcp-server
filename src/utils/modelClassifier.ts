@@ -144,17 +144,20 @@ export function applyObjectSuffix(objectName: string, suffix: string): string {
  *
  * Returns empty string when both are empty.
  */
-export function resolveObjectPrefix(modelName: string): string {
+export function resolveObjectPrefix(_modelName?: string): string {
   const envPrefix = process.env.EXTENSION_PREFIX?.trim();
 
+  // If EXTENSION_PREFIX is explicitly set (even empty string after trim would be
+  // falsy), use it exclusively — no fallback to model name. This allows a
+  // suffix-only naming convention where EXTENSION_PREFIX is left unset and only
+  // EXTENSION_SUFFIX is configured.
   if (envPrefix) {
     return envPrefix.replace(/_+$/, '');
   }
 
-  if (modelName) {
-    return modelName.replace(/_+$/, '');
-  }
-
+  // EXTENSION_PREFIX is not set at all (undefined) — only then fall back to
+  // model name. If the user explicitly set EXTENSION_PREFIX= (empty), envPrefix
+  // is '' (falsy) so we also skip the fallback, which is the desired behaviour.
   return '';
 }
 
